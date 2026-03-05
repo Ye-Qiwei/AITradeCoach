@@ -528,12 +528,16 @@ class ModelCallTrace(ExtensibleModel):
     call_id: str = Field(...)
     purpose: ModelCallPurpose = Field(...)
     model_name: str = Field(...)
+    provider: str | None = Field(default=None)
+    prompt_version: str | None = Field(default=None)
     started_at: datetime = Field(default_factory=utc_now)
     ended_at: datetime | None = Field(default=None)
     input_summary: str = Field(...)
     output_summary: str = Field(...)
     token_in: int | None = Field(default=None, ge=0)
     token_out: int | None = Field(default=None, ge=0)
+    response_size: int | None = Field(default=None, ge=0)
+    error_message: str | None = Field(default=None)
     latency_ms: int | None = Field(default=None, ge=0)
 
 
@@ -543,6 +547,7 @@ class ToolCallTrace(ExtensibleModel):
     server_id: str = Field(...)
     request_summary: str = Field(...)
     response_summary: str = Field(...)
+    payload_hash: str | None = Field(default=None)
     latency_ms: int = Field(..., ge=0)
     success: bool = Field(default=True)
     error_message: str | None = Field(default=None)
@@ -577,6 +582,7 @@ class RunTrace(ExtensibleModel):
     window_decisions: list[WindowDecision] = Field(default_factory=list)
     evidence_sources: list[SourceAttribution] = Field(default_factory=list)
     report_version: str | None = Field(default=None)
+    rewrite_rounds: int = Field(default=0, ge=0)
     debug_context: dict[str, Any] = Field(default_factory=dict)
 
 

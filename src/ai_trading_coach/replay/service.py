@@ -39,8 +39,7 @@ class ReplayRunner:
                     {assessment.category for assessment in result.evaluation.hypothesis_assessments},
                     key=lambda item: item.value,
                 )
-                if result.trace and result.trace.window_decisions:
-                    follow_up_needed = result.trace.window_decisions[-1].follow_up_needed
+                follow_up_needed = bool(result.evaluation.follow_up_signals)
 
             predictions.append(
                 ReplayPrediction(
@@ -52,4 +51,3 @@ class ReplayRunner:
             )
 
         return self.evaluator.evaluate(cases=cases, predictions=predictions)
-

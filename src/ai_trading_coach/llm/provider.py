@@ -15,9 +15,11 @@ class LLMCallRecord:
     provider_name: str
     model_name: str
     schema_name: str | None
+    prompt_version: str | None
     started_at: datetime
     ended_at: datetime
     latency_ms: int
+    response_size: int
     token_in: int | None = None
     token_out: int | None = None
     error: str | None = None
@@ -31,10 +33,16 @@ class LLMProvider(Protocol):
     model_name: str
     last_call: LLMCallRecord | None
 
-    def chat_json(self, schema_name: str, messages: list[dict[str, str]], timeout: float) -> dict[str, Any]:
+    def chat_json(
+        self,
+        schema_name: str,
+        messages: list[dict[str, str]],
+        timeout: float,
+        prompt_version: str | None = None,
+    ) -> dict[str, Any]:
         """Return parsed JSON object for the target schema."""
 
-    def chat_text(self, messages: list[dict[str, str]]) -> str:
+    def chat_text(self, messages: list[dict[str, str]], prompt_version: str | None = None) -> str:
         """Return plain text completion."""
 
 

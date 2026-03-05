@@ -7,12 +7,11 @@ from pathlib import Path
 
 import typer
 
-from ai_trading_coach.app.factory import build_orchestrator_modules
+from ai_trading_coach.app.factory import build_pipeline_orchestrator
 from ai_trading_coach.config import get_settings
 from ai_trading_coach.domain.enums import TriggerType
 from ai_trading_coach.domain.models import ReviewRunRequest
 from ai_trading_coach.observability.tracing import save_run_trace
-from ai_trading_coach.orchestrator import PipelineOrchestrator
 
 app = typer.Typer(add_completion=False)
 
@@ -25,9 +24,9 @@ def run(
     dry_run: bool = typer.Option(True, help="Disable memory write"),
 ) -> None:
     settings = get_settings()
+    settings.validate_llm_or_raise()
     text = Path(log_file).read_text(encoding="utf-8")
-
-    orchestrator = PipelineOrchestrator(modules=build_orchestrator_modules(settings))
+    orchestrator = build_pipeline_orchestrator(settings)
 
     request = ReviewRunRequest(
         run_id=f"manual_{user_id}_{run_date}",

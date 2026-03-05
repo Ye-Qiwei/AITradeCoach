@@ -31,18 +31,40 @@ class OpenAILLMProvider:
         self.timeout_seconds = timeout_seconds
         self.last_call: LLMCallRecord | None = None
 
-    def chat_json(self, schema_name: str, messages: list[dict[str, str]], timeout: float) -> dict[str, Any]:
-        text = self._invoke(messages=messages, timeout=timeout, schema_name=schema_name)
+    def chat_json(
+        self,
+        schema_name: str,
+        messages: list[dict[str, str]],
+        timeout: float,
+        prompt_version: str | None = None,
+    ) -> dict[str, Any]:
+        text = self._invoke(
+            messages=messages,
+            timeout=timeout,
+            schema_name=schema_name,
+            prompt_version=prompt_version,
+        )
         try:
             return parse_json_object(text)
         except Exception as exc:  # noqa: BLE001
             self._mark_parse_error(schema_name=schema_name, error=str(exc))
             raise
 
-    def chat_text(self, messages: list[dict[str, str]]) -> str:
-        return self._invoke(messages=messages, timeout=self.timeout_seconds, schema_name=None)
+    def chat_text(self, messages: list[dict[str, str]], prompt_version: str | None = None) -> str:
+        return self._invoke(
+            messages=messages,
+            timeout=self.timeout_seconds,
+            schema_name=None,
+            prompt_version=prompt_version,
+        )
 
-    def _invoke(self, messages: list[dict[str, str]], timeout: float, schema_name: str | None) -> str:
+    def _invoke(
+        self,
+        messages: list[dict[str, str]],
+        timeout: float,
+        schema_name: str | None,
+        prompt_version: str | None,
+    ) -> str:
         started_at = _utc_now()
         t0 = time.perf_counter()
 
@@ -60,8 +82,10 @@ class OpenAILLMProvider:
 
             self._record_call(
                 schema_name=schema_name,
+                prompt_version=prompt_version,
                 started_at=started_at,
                 latency_ms=int((time.perf_counter() - t0) * 1000),
+                response_size=len(content.encode("utf-8")),
                 token_in=usage.get("input_tokens"),
                 token_out=usage.get("output_tokens"),
                 error=None,
@@ -70,8 +94,10 @@ class OpenAILLMProvider:
         except Exception as exc:  # noqa: BLE001
             self._record_call(
                 schema_name=schema_name,
+                prompt_version=prompt_version,
                 started_at=started_at,
                 latency_ms=int((time.perf_counter() - t0) * 1000),
+                response_size=0,
                 token_in=None,
                 token_out=None,
                 error=str(exc),
@@ -138,8 +164,10 @@ class OpenAILLMProvider:
     def _record_call(
         self,
         schema_name: str | None,
+        prompt_version: str | None,
         started_at: datetime,
         latency_ms: int,
+        response_size: int,
         token_in: int | None,
         token_out: int | None,
         error: str | None,
@@ -149,9 +177,11 @@ class OpenAILLMProvider:
             provider_name=self.provider_name,
             model_name=self.model_name,
             schema_name=schema_name,
+            prompt_version=prompt_version,
             started_at=started_at,
             ended_at=ended_at,
             latency_ms=latency_ms,
+            response_size=response_size,
             token_in=token_in,
             token_out=token_out,
             error=error,
@@ -159,13 +189,15 @@ class OpenAILLMProvider:
         level = logging.INFO if error is None else logging.WARNING
         logger.log(
             level,
-            "llm_call provider=%s model=%s schema=%s latency_ms=%s token_in=%s token_out=%s error=%s",
+            "llm_call provider=%s model=%s schema=%s prompt_version=%s latency_ms=%s token_in=%s token_out=%s response_size=%s error=%s",
             self.provider_name,
             self.model_name,
             schema_name or "text",
+            prompt_version or "",
             latency_ms,
             token_in,
             token_out,
+            response_size,
             error or "",
         )
 

@@ -1,5 +1,6 @@
 """Domain models and contracts."""
 
+from .agent_models import CombinedParseResult, Plan, PlanSubTask, StopCondition
 from .models import (
     BehavioralSignal,
     CognitionState,
@@ -40,4 +41,8 @@ __all__ = [
     "ImprovementProposal",
     "RunTrace",
     "TaskResult",
+    "CombinedParseResult",
+    "Plan",
+    "PlanSubTask",
+    "StopCondition",
 ]

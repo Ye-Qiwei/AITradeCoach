@@ -7,10 +7,9 @@ from pathlib import Path
 
 import typer
 
-from ai_trading_coach.app.factory import build_orchestrator_modules
+from ai_trading_coach.app.factory import build_pipeline_orchestrator
 from ai_trading_coach.config import get_settings
 from ai_trading_coach.domain.models import ReplayCase
-from ai_trading_coach.orchestrator import PipelineOrchestrator
 from ai_trading_coach.replay import ReplayRunner
 
 app = typer.Typer(add_completion=False)
@@ -21,13 +20,14 @@ def run(
     cases_file: str = typer.Option("examples/replay/replay_cases.sample.json", help="Replay cases JSON path"),
 ) -> None:
     settings = get_settings()
+    settings.validate_llm_or_raise()
     payload = json.loads(Path(cases_file).read_text(encoding="utf-8"))
     if not isinstance(payload, list):
         raise typer.BadParameter("Replay cases file must be a JSON list.")
 
     cases = [ReplayCase.model_validate(item) for item in payload]
 
-    orchestrator = PipelineOrchestrator(modules=build_orchestrator_modules(settings))
+    orchestrator = build_pipeline_orchestrator(settings)
 
     replay_result = ReplayRunner(orchestrator=orchestrator).run(cases)
     out_file = Path(settings.trace_output_dir) / f"{replay_result.replay_id}.json"
