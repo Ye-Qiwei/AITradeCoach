@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
-
 from ai_trading_coach.domain.contracts import EvaluatorInput, EvaluatorOutput
 from ai_trading_coach.domain.enums import BiasType, EvaluationCategory
 from ai_trading_coach.domain.models import (

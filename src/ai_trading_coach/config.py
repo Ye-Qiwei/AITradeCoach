@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     prompt_registry_path: str = "./config/prompts"
     atc_use_gemini: bool = False
     atc_model_timeout_seconds: int = 20
+    atc_enable_llm_cognition: bool = False
+    atc_enable_llm_report: bool = False
+    atc_llm_provider: Literal["gemini", "openai"] = "gemini"
+    atc_llm_model: str = ""
+    atc_llm_timeout_seconds: float = 20.0
+    openai_api_key: str = ""
 
     def ensure_runtime_dirs(self) -> None:
         Path(self.trace_output_dir).mkdir(parents=True, exist_ok=True)

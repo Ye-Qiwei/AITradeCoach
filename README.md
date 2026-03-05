@@ -118,6 +118,10 @@ conda activate AITradeCoach
 ```bash
 pip install -e ".[dev]"
 ```
+如需启用 OpenAI provider：
+```bash
+pip install -e ".[dev,openai]"
+```
 
 ### 4.3 校验安装
 ```bash
@@ -138,9 +142,15 @@ cp .env.example .env
 | `ATC_ENV` | 运行环境标识 | `local` |
 | `ATC_DEBUG` | debug 开关 | `true` |
 | `GEMINI_API_KEY` | Gemini key（可空，关闭 LLM 时不必填） | `xxx` |
+| `OPENAI_API_KEY` | OpenAI key（可空，关闭 LLM 时不必填） | `xxx` |
 | `GEMINI_MODEL` | Gemini 模型名 | `gemini-2.5-pro` |
 | `ATC_USE_GEMINI` | 是否启用 Gemini 顾问增强 PromptOps | `false` |
 | `ATC_MODEL_TIMEOUT_SECONDS` | 模型调用超时 | `20` |
+| `ATC_ENABLE_LLM_COGNITION` | 启用 LLM 认知抽取引擎（失败自动回退启发式） | `false` |
+| `ATC_ENABLE_LLM_REPORT` | 启用 LLM 报告生成引擎（失败自动回退启发式） | `false` |
+| `ATC_LLM_PROVIDER` | LLM provider (`gemini`/`openai`) | `gemini` |
+| `ATC_LLM_MODEL` | LLM 引擎模型名（为空时使用 provider 默认） | `` |
+| `ATC_LLM_TIMEOUT_SECONDS` | LLM 引擎调用超时秒数 | `20` |
 | `MODEL_DEFAULT` | 默认模型（未指定模块模型时使用） | `gemini-2.5-pro` |
 | `MODEL_LOG_UNDERSTANDING` | 日志理解模块模型覆盖 | `` |
 | `MODEL_COGNITION_EXTRACTION` | 认知抽取模块模型覆盖 | `` |
@@ -156,6 +166,29 @@ cp .env.example .env
 | `TRACE_OUTPUT_DIR` | trace 输出目录 | `./trace_logs` |
 | `REPORT_OUTPUT_DIR` | 报告输出目录 | `./reports` |
 | `PROMPT_REGISTRY_PATH` | prompt 目录 | `./config/prompts` |
+
+### 5.1 启用 LLM 认知抽取与报告（可选）
+默认情况下，系统使用启发式认知抽取与启发式报告生成，不需要任何 API key。
+
+启用 Gemini 示例：
+```bash
+ATC_ENABLE_LLM_COGNITION=true
+ATC_ENABLE_LLM_REPORT=true
+ATC_LLM_PROVIDER=gemini
+ATC_LLM_MODEL=gemini-2.5-pro
+GEMINI_API_KEY=your_key
+```
+
+启用 OpenAI 示例：
+```bash
+ATC_ENABLE_LLM_COGNITION=true
+ATC_ENABLE_LLM_REPORT=true
+ATC_LLM_PROVIDER=openai
+ATC_LLM_MODEL=gpt-4o-mini
+OPENAI_API_KEY=your_key
+```
+
+当 key 缺失、超时、结构化 JSON 校验失败、或 markdown 合同校验失败时，会自动回退到当前启发式实现，主流程仍可继续执行。
 
 ## 6. 用户日志怎么写
 

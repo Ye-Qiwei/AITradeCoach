@@ -158,6 +158,8 @@ class ReportGeneratorInput(ExtensibleModel):
     pnl_snapshot: PnLSnapshot
     evidence_packet: EvidencePacket
     window_decision: WindowDecision
+    trade_ledger: TradeLedger | None = None
+    relevant_memories: RelevantMemorySet | None = None
     user_focus_points: list[str] = Field(default_factory=list)
 
 

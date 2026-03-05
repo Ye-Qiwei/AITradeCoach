@@ -102,6 +102,7 @@ class PipelineOrchestrator:
         report_output = None
         promptops_output = None
         memory_write_results: list[MemoryWriteResult] = []
+        model_call_traces: list[ModelCallTrace] = []
 
         try:
             intake_output = self._execute_step(
@@ -138,6 +139,9 @@ class PipelineOrchestrator:
                 ),
                 step_results=step_results,
                 module_spans=module_spans,
+            )
+            model_call_traces.extend(
+                self._parse_model_call_traces(cognition_output.extensions.get("model_call_traces"))
             )
 
             recall_output = self._execute_step(
@@ -239,6 +243,8 @@ class PipelineOrchestrator:
                         pnl_snapshot=ledger_output.pnl_snapshot,
                         evidence_packet=evidence_output.packet,
                         window_decision=window_output.decision,
+                        trade_ledger=ledger_output.ledger,
+                        relevant_memories=recall_output.relevant_memories,
                         user_focus_points=[intent.question for intent in cognition_output.cognition_state.user_intent_signals],
                     )
                 ),
@@ -246,6 +252,9 @@ class PipelineOrchestrator:
                 module_spans=module_spans,
             )
             trace.report_version = report_output.report.generated_prompt_version
+            model_call_traces.extend(
+                self._parse_model_call_traces(report_output.extensions.get("model_call_traces"))
+            )
 
             if request.options.dry_run:
                 self._record_step(
@@ -304,7 +313,10 @@ class PipelineOrchestrator:
                 step_results=step_results,
                 module_spans=module_spans,
             )
-            trace.model_calls = self._parse_model_call_traces(promptops_output.extensions.get("model_call_traces"))
+            model_call_traces.extend(
+                self._parse_model_call_traces(promptops_output.extensions.get("model_call_traces"))
+            )
+            trace.model_calls = model_call_traces
 
             if request.options.dry_run:
                 self._record_step(
