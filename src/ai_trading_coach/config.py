@@ -136,6 +136,18 @@ class Settings(BaseSettings):
         default=2,
         validation_alias=AliasChoices("AGENT_MAX_REWRITE_ROUNDS", "ATC_AGENT_MAX_REWRITE_ROUNDS"),
     )
+    react_max_iterations: int = Field(
+        default=6,
+        validation_alias=AliasChoices("REACT_MAX_ITERATIONS", "ATC_REACT_MAX_ITERATIONS"),
+    )
+    react_max_tool_failures: int = Field(
+        default=2,
+        validation_alias=AliasChoices("REACT_MAX_TOOL_FAILURES", "ATC_REACT_MAX_TOOL_FAILURES"),
+    )
+    react_require_min_sources: int = Field(
+        default=2,
+        validation_alias=AliasChoices("REACT_REQUIRE_MIN_SOURCES", "ATC_REACT_REQUIRE_MIN_SOURCES"),
+    )
     context_budget_planner: int = Field(
         default=6000,
         validation_alias=AliasChoices("CONTEXT_BUDGET_PLANNER", "ATC_CONTEXT_BUDGET_PLANNER"),

@@ -33,9 +33,11 @@ from ai_trading_coach.modules.agent import (
     ContextBuilderV2,
     ExecutorEngine,
     PlannerAgent,
+    ReActResearchAgent,
     ReportJudge,
     ReporterAgent,
 )
+from ai_trading_coach.orchestrator.react_research_orchestrator import ReActResearchOrchestrator
 
 T = TypeVar("T")
 
@@ -52,6 +54,7 @@ class OrchestratorModules:
     reporter_agent: ReporterAgent
     report_judge: ReportJudge
     context_builder: ContextBuilderV2
+    react_research_agent: ReActResearchAgent | None = None
 
 
 class PipelineOrchestrator:
@@ -93,34 +96,54 @@ class PipelineOrchestrator:
             if parse_trace is not None:
                 model_calls.append(parse_trace)
 
-            planner_context = self.modules.context_builder.for_planner(parse_result=parse_result)
-            plan, planner_trace = self._execute_step(
-                module_name=ModuleName.EVIDENCE_PLANNER,
-                action=lambda: self.modules.planner_agent.plan(
-                    parse_result=parse_result,
-                    planner_context=planner_context,
-                ),
-                step_results=step_results,
-                module_spans=module_spans,
-            )
-            if planner_trace is not None:
-                model_calls.append(planner_trace)
+            if self.modules.react_research_agent is not None:
+                research_orchestrator = ReActResearchOrchestrator(
+                    react_agent=self.modules.react_research_agent,
+                    planner_agent=self.modules.planner_agent,
+                )
+                research_result = self._execute_step(
+                    module_name=ModuleName.MCP_GATEWAY,
+                    action=lambda: research_orchestrator.run(
+                        run_id=request.run_id,
+                        user_id=request.user_id,
+                        parse_result=parse_result,
+                    ),
+                    step_results=step_results,
+                    module_spans=module_spans,
+                )
+                plan = research_result.bootstrap_plan
+                evidence_packet = research_result.evidence_packet
+                trace.react_steps = [item.model_dump(mode="json") for item in research_result.summary.tool_steps]
+                trace.debug_context["research_summary"] = research_result.summary.model_dump(mode="json")
+            else:
+                planner_context = self.modules.context_builder.for_planner(parse_result=parse_result)
+                plan, planner_trace = self._execute_step(
+                    module_name=ModuleName.EVIDENCE_PLANNER,
+                    action=lambda: self.modules.planner_agent.plan(
+                        parse_result=parse_result,
+                        planner_context=planner_context,
+                    ),
+                    step_results=step_results,
+                    module_spans=module_spans,
+                )
+                if planner_trace is not None:
+                    model_calls.append(planner_trace)
 
-            executor_result = self._execute_step(
-                module_name=ModuleName.MCP_GATEWAY,
-                action=lambda: self.modules.executor_engine.execute(
-                    plan=plan,
-                    user_id=request.user_id,
-                ),
-                step_results=step_results,
-                module_spans=module_spans,
-            )
-            evidence_packet = executor_result.evidence_packet
-            tool_calls.extend(executor_result.tool_traces)
+                executor_result = self._execute_step(
+                    module_name=ModuleName.MCP_GATEWAY,
+                    action=lambda: self.modules.executor_engine.execute(
+                        plan=plan,
+                        user_id=request.user_id,
+                    ),
+                    step_results=step_results,
+                    module_spans=module_spans,
+                )
+                evidence_packet = executor_result.evidence_packet
+                tool_calls.extend(executor_result.tool_traces)
+                trace.debug_context["subtask_traces"] = [
+                    item.model_dump(mode="json") for item in executor_result.subtask_traces
+                ]
             trace.evidence_sources = evidence_packet.source_registry
-            trace.debug_context["subtask_traces"] = [
-                item.model_dump(mode="json") for item in executor_result.subtask_traces
-            ]
 
             rewrite_instruction: str | None = None
             verdict_passed = False
@@ -360,4 +383,3 @@ class PipelineOrchestrator:
             content = "\n".join(lines[idx + 1 : end]).strip()
             sections.append(ReportSection(title=title, content=content))
         return sections
-

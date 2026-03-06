@@ -584,6 +584,7 @@ class RunTrace(ExtensibleModel):
     report_version: str | None = Field(default=None)
     rewrite_rounds: int = Field(default=0, ge=0)
     debug_context: dict[str, Any] = Field(default_factory=dict)
+    react_steps: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class StepResult(ExtensibleModel):

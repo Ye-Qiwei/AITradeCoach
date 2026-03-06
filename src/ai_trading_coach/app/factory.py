@@ -12,9 +12,11 @@ from ai_trading_coach.modules.agent import (
     ContextBuilderV2,
     ExecutorEngine,
     PlannerAgent,
+    ReActResearchAgent,
     ReportJudge,
     ReporterAgent,
 )
+from ai_trading_coach.modules.agent.react_tools import ReactResearchTools
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator import LangChainAgentOrchestrator, OrchestratorModules, PipelineOrchestrator
 
@@ -31,13 +33,22 @@ def build_orchestrator_modules(
     )
     context_builder = ContextBuilderV2(settings=settings)
     mcp_manager = MCPClientManager(settings=settings, invoker=mcp_invoker)
+    planner_agent = PlannerAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds)
+    react_tools = ReactResearchTools(mcp_manager=mcp_manager)
+    react_agent = ReActResearchAgent(
+        provider=provider,
+        tools=react_tools,
+        settings=settings,
+        planner_agent=planner_agent,
+    )
     return OrchestratorModules(
         parser_agent=CombinedParserAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
-        planner_agent=PlannerAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
+        planner_agent=planner_agent,
         executor_engine=ExecutorEngine(mcp_manager=mcp_manager),
         reporter_agent=ReporterAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
         report_judge=ReportJudge(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
         context_builder=context_builder,
+        react_research_agent=react_agent,
     )
 
 
