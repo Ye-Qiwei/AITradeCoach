@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from ai_trading_coach.config import Settings
 from ai_trading_coach.modules.agent import CombinedParserAgent, ContextBuilderV2, ReportJudge, ReporterAgent
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
+from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.orchestrator.langchain_agent_orchestrator import LangChainAgentOrchestrator
 from ai_trading_coach.orchestrator.langgraph_graph import build_review_graph
 from ai_trading_coach.orchestrator.langgraph_nodes import LangGraphNodeRuntime
@@ -19,6 +20,7 @@ class OrchestratorModules:
     report_judge: ReportJudge
     context_builder: ContextBuilderV2
     mcp_manager: MCPClientManager
+    long_term_store: LongTermMemoryStore
 
 
 class PipelineOrchestrator(LangChainAgentOrchestrator):
@@ -33,6 +35,7 @@ class PipelineOrchestrator(LangChainAgentOrchestrator):
             mcp_manager=modules.mcp_manager,
             chat_model=chat_model,
             settings=settings,
+            long_term_store=modules.long_term_store,
         )
         super().__init__(compiled_graph=build_review_graph(runtime), chat_model=chat_model)
 

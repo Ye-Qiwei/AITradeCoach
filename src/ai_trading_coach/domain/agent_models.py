@@ -56,6 +56,15 @@ class ReporterDraft(ExtensibleModel):
     markdown: str = Field(..., min_length=20)
 
 
+
+
+class ReporterOutput(ExtensibleModel):
+    markdown: str = Field(..., min_length=20)
+    judgement_feedback: list["DailyJudgementFeedback"] = Field(default_factory=list)
+
+
+from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback
+
 class JudgeVerdict(ExtensibleModel):
     passed: bool
     reasons: list[str] = Field(default_factory=list)

@@ -9,7 +9,9 @@ from ai_trading_coach.llm.langchain_chat_model import build_langchain_chat_model
 from ai_trading_coach.llm.registry import build_required_llm_provider
 from ai_trading_coach.modules.agent import CombinedParserAgent, ContextBuilderV2, ReportJudge, ReporterAgent
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
+from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.orchestrator import LangChainAgentOrchestrator, OrchestratorModules, PipelineOrchestrator
+from ai_trading_coach.prompts.prompt_store import PromptStore
 
 
 def build_orchestrator_modules(
@@ -22,12 +24,14 @@ def build_orchestrator_modules(
         model_name=settings.selected_llm_model(),
         timeout_seconds=settings.llm_timeout_seconds,
     )
+    prompt_store = PromptStore(settings.prompt_registry_path)
     return OrchestratorModules(
-        parser_agent=CombinedParserAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
-        reporter_agent=ReporterAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
+        parser_agent=CombinedParserAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds, prompt_store=prompt_store),
+        reporter_agent=ReporterAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds, prompt_store=prompt_store),
         report_judge=ReportJudge(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
         context_builder=ContextBuilderV2(settings=settings),
         mcp_manager=MCPClientManager(settings=settings, invoker=mcp_invoker),
+        long_term_store=LongTermMemoryStore(),
     )
 
 
