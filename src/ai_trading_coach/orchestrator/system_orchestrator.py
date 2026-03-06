@@ -125,7 +125,7 @@ class PipelineOrchestrator:
             rewrite_instruction: str | None = None
             verdict_passed = False
             draft_markdown = ""
-            max_rounds = max(0, self.settings.atc_agent_max_rewrite_rounds)
+            max_rounds = max(0, self.settings.agent_max_rewrite_rounds)
             rounds = 0
             while rounds <= max_rounds:
                 rounds += 1

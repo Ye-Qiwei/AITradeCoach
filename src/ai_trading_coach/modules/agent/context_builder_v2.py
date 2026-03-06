@@ -45,7 +45,7 @@ class ContextBuilderV2:
             "positions": positions or [],
             "trade_history": trades or [],
         }
-        return self._fit_budget(payload, self.settings.atc_context_budget_planner)
+        return self._fit_budget(payload, self.settings.context_budget_planner)
 
     def for_reporter(
         self,
@@ -70,7 +70,7 @@ class ContextBuilderV2:
                 for source in evidence_packet.source_registry
             ],
         }
-        return self._fit_budget(payload, self.settings.atc_context_budget_reporter)
+        return self._fit_budget(payload, self.settings.context_budget_reporter)
 
     def for_judge(
         self,
@@ -88,7 +88,7 @@ class ContextBuilderV2:
             "source_ids": [source.source_id for source in evidence_packet.source_registry],
             "rewrite_instruction_used": rewrite_instruction,
         }
-        return self._fit_budget(payload, self.settings.atc_context_budget_judge)
+        return self._fit_budget(payload, self.settings.context_budget_judge)
 
     def _fit_budget(self, payload: dict[str, Any], budget: int) -> dict[str, Any]:
         if budget <= 0:

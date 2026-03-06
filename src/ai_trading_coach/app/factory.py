@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from ai_trading_coach.config import Settings
+from ai_trading_coach.llm.langchain_chat_model import build_langchain_chat_model
 from ai_trading_coach.llm.registry import build_required_llm_provider
 from ai_trading_coach.modules.agent import (
     CombinedParserAgent,
@@ -15,7 +16,7 @@ from ai_trading_coach.modules.agent import (
     ReporterAgent,
 )
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
-from ai_trading_coach.orchestrator import OrchestratorModules, PipelineOrchestrator
+from ai_trading_coach.orchestrator import LangChainAgentOrchestrator, OrchestratorModules, PipelineOrchestrator
 
 
 def build_orchestrator_modules(
@@ -26,16 +27,16 @@ def build_orchestrator_modules(
     provider = build_required_llm_provider(
         settings=settings,
         model_name=settings.selected_llm_model(),
-        timeout_seconds=settings.atc_llm_timeout_seconds,
+        timeout_seconds=settings.llm_timeout_seconds,
     )
     context_builder = ContextBuilderV2(settings=settings)
     mcp_manager = MCPClientManager(settings=settings, invoker=mcp_invoker)
     return OrchestratorModules(
-        parser_agent=CombinedParserAgent(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds),
-        planner_agent=PlannerAgent(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds),
+        parser_agent=CombinedParserAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
+        planner_agent=PlannerAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
         executor_engine=ExecutorEngine(mcp_manager=mcp_manager),
-        reporter_agent=ReporterAgent(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds),
-        report_judge=ReportJudge(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds),
+        reporter_agent=ReporterAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
+        report_judge=ReportJudge(provider=provider, timeout_seconds=settings.llm_timeout_seconds),
         context_builder=context_builder,
     )
 
@@ -43,9 +44,11 @@ def build_orchestrator_modules(
 def build_pipeline_orchestrator(
     settings: Settings,
     mcp_invoker: Callable[[str, str, dict[str, Any]], Any | Awaitable[Any]] | None = None,
-) -> PipelineOrchestrator:
+) -> LangChainAgentOrchestrator:
     modules = build_orchestrator_modules(settings=settings, mcp_invoker=mcp_invoker)
-    return PipelineOrchestrator(modules=modules, settings=settings)
+    legacy_orchestrator = PipelineOrchestrator(modules=modules, settings=settings)
+    chat_model = build_langchain_chat_model(settings=settings, timeout_seconds=settings.llm_timeout_seconds)
+    return LangChainAgentOrchestrator(legacy_orchestrator=legacy_orchestrator, chat_model=chat_model)
 
 
 def build_cognition_engine(settings: Settings) -> CombinedParserAgent:
@@ -53,7 +56,7 @@ def build_cognition_engine(settings: Settings) -> CombinedParserAgent:
 
     settings.validate_llm_or_raise()
     provider = build_required_llm_provider(settings=settings)
-    return CombinedParserAgent(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds)
+    return CombinedParserAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds)
 
 
 def build_report_generator(settings: Settings) -> ReporterAgent:
@@ -61,7 +64,7 @@ def build_report_generator(settings: Settings) -> ReporterAgent:
 
     settings.validate_llm_or_raise()
     provider = build_required_llm_provider(settings=settings)
-    return ReporterAgent(provider=provider, timeout_seconds=settings.atc_llm_timeout_seconds)
+    return ReporterAgent(provider=provider, timeout_seconds=settings.llm_timeout_seconds)
 
 
 __all__ = [

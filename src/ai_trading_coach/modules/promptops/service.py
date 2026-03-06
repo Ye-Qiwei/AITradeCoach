@@ -41,13 +41,13 @@ class ControlledPromptOpsSelfImprovementEngine:
         self.prompt_registry = prompt_registry or PromptRegistry(settings.prompt_registry_path)
         self.quality_scorer = quality_scorer or ReportQualityScorer()
         self.replay_evaluator = replay_evaluator or ReplayEvaluator()
-        llm_enabled = settings.atc_use_gemini if enable_llm is None else enable_llm
+        llm_enabled = settings.use_gemini if enable_llm is None else enable_llm
         self.llm_advisor = llm_advisor
         if self.llm_advisor is None and llm_enabled and settings.gemini_api_key:
             self.llm_advisor = GeminiPromptOpsAdvisor(
                 model_name=settings.model_for_module(ModuleName.PROMPTOPS),
                 api_key=settings.gemini_api_key,
-                timeout_seconds=settings.atc_model_timeout_seconds,
+                timeout_seconds=settings.model_timeout_seconds,
                 prompt_registry=self.prompt_registry,
             )
 

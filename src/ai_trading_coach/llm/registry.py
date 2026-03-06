@@ -17,7 +17,7 @@ def build_required_llm_provider(
 
     provider_name = settings.llm_provider()
     api_key = settings.llm_api_key()
-    timeout = float(timeout_seconds if timeout_seconds is not None else settings.atc_llm_timeout_seconds)
+    timeout = float(timeout_seconds if timeout_seconds is not None else settings.llm_timeout_seconds)
     selected_model = model_name or settings.selected_llm_model()
 
     if provider_name == "gemini":

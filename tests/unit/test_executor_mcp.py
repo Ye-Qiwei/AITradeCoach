@@ -13,9 +13,9 @@ from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 def test_mcp_allowlist_blocked_call_is_traced() -> None:
     settings = Settings(
         _env_file=None,
-        atc_mcp_servers='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
-        atc_evidence_tool_map='{"price_path":"srv:price_history"}',
-        atc_mcp_tool_allowlist="srv:another_tool",
+        mcp_servers_json='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
+        evidence_tool_map_json='{"price_path":"srv:price_history"}',
+        mcp_tool_allowlist_csv="srv:another_tool",
     )
 
     async def invoker(server_id: str, tool_name: str, arguments: dict[str, object]):
@@ -47,9 +47,9 @@ def test_mcp_allowlist_blocked_call_is_traced() -> None:
 def test_executor_runs_independent_subtasks_in_parallel_with_traces() -> None:
     settings = Settings(
         _env_file=None,
-        atc_mcp_servers='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
-        atc_evidence_tool_map='{"price_path":"srv:price_history","news":"srv:rss_search"}',
-        atc_mcp_tool_allowlist="srv:price_history,srv:rss_search",
+        mcp_servers_json='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
+        evidence_tool_map_json='{"price_path":"srv:price_history","news":"srv:rss_search"}',
+        mcp_tool_allowlist_csv="srv:price_history,srv:rss_search",
     )
 
     async def invoker(server_id: str, tool_name: str, arguments: dict[str, object]):

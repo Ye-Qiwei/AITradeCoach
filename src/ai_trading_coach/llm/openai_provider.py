@@ -1,4 +1,4 @@
-"""OpenAI-backed LLM provider."""
+"""OpenAI-backed LLM provider via LangChain chat model."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def _utc_now() -> datetime:
 
 
 class OpenAILLMProvider:
-    """LLM provider implementation using the official OpenAI SDK."""
+    """LLM provider implementation using LangChain ChatOpenAI."""
 
     def __init__(
         self,
@@ -69,15 +69,17 @@ class OpenAILLMProvider:
         t0 = time.perf_counter()
 
         try:
-            from openai import OpenAI
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+            from langchain_openai import ChatOpenAI
 
-            client = OpenAI(api_key=self.api_key, timeout=timeout)
-            response = client.chat.completions.create(
+            model = ChatOpenAI(
                 model=self.model_name,
-                messages=[self._to_openai_message(msg) for msg in messages if msg.get("content")],
+                api_key=self.api_key,
+                timeout=timeout,
                 temperature=0.1,
             )
-            content = self._extract_content(response)
+            response = model.invoke(self._to_langchain_messages(messages, AIMessage, HumanMessage, SystemMessage))
+            content = self._response_content_to_text(response.content)
             usage = self._extract_usage(response)
 
             self._record_call(
@@ -104,46 +106,51 @@ class OpenAILLMProvider:
             )
             raise
 
-    def _to_openai_message(self, item: dict[str, str]) -> dict[str, str]:
-        role = str(item.get("role", "user")).strip().lower()
-        if role not in {"system", "user", "assistant"}:
-            role = "user"
-        return {
-            "role": role,
-            "content": str(item.get("content", "")),
-        }
+    def _to_langchain_messages(
+        self,
+        messages: list[dict[str, str]],
+        ai_cls,
+        human_cls,
+        system_cls,
+    ) -> list[Any]:
+        out: list[Any] = []
+        for item in messages:
+            role = str(item.get("role", "user")).strip().lower()
+            content = str(item.get("content", "")).strip()
+            if not content:
+                continue
+            if role == "system":
+                out.append(system_cls(content=content))
+            elif role == "assistant":
+                out.append(ai_cls(content=content))
+            else:
+                out.append(human_cls(content=content))
+        return out
 
-    def _extract_content(self, response: Any) -> str:
-        choices = getattr(response, "choices", None)
-        if not choices:
-            return ""
-        message = getattr(choices[0], "message", None)
-        if message is None:
-            return ""
-        content = getattr(message, "content", "")
+    def _response_content_to_text(self, content: Any) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
             parts: list[str] = []
-            for block in content:
-                if isinstance(block, dict):
-                    text = block.get("text")
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
                     if isinstance(text, str):
                         parts.append(text)
+                elif isinstance(item, str):
+                    parts.append(item)
                 else:
-                    text = getattr(block, "text", None)
-                    if isinstance(text, str):
-                        parts.append(text)
+                    parts.append(str(item))
             return "\n".join(part for part in parts if part).strip()
         return str(content)
 
     def _extract_usage(self, response: Any) -> dict[str, int | None]:
-        usage = getattr(response, "usage", None)
-        prompt_tokens = getattr(usage, "prompt_tokens", None)
-        completion_tokens = getattr(usage, "completion_tokens", None)
+        usage = getattr(response, "usage_metadata", {}) or {}
+        in_tokens = usage.get("input_tokens")
+        out_tokens = usage.get("output_tokens")
         return {
-            "input_tokens": int(prompt_tokens) if isinstance(prompt_tokens, int) else None,
-            "output_tokens": int(completion_tokens) if isinstance(completion_tokens, int) else None,
+            "input_tokens": int(in_tokens) if isinstance(in_tokens, int) else None,
+            "output_tokens": int(out_tokens) if isinstance(out_tokens, int) else None,
         }
 
     def _mark_parse_error(self, schema_name: str, error: str) -> None:

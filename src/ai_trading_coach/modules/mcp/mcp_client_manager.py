@@ -50,7 +50,7 @@ class MCPClientManager:
         key = f"{server_id}:{tool_name}"
         if key not in self.allowlist:
             raise MCPToolNotAllowedError(
-                f"MCP tool blocked by allowlist: {key}. Configure ATC_MCP_TOOL_ALLOWLIST."
+                f"MCP tool blocked by allowlist: {key}. Configure MCP_TOOL_ALLOWLIST."
             )
 
         if self.invoker is not None:
@@ -62,7 +62,7 @@ class MCPClientManager:
         server = self.server_map.get(server_id)
         if server is None:
             raise MCPConfigurationError(
-                f"MCP server '{server_id}' not found in ATC_MCP_SERVERS."
+                f"MCP server '{server_id}' not found in MCP_SERVERS."
             )
         return await self._call_with_sdk(server=server, tool_name=tool_name, arguments=arguments)
 
@@ -83,8 +83,8 @@ class MCPClientManager:
                 "Official MCP Python SDK is required. Install package 'mcp' to enable MCP tool calls."
             ) from exc
 
-        timeout = float(server.timeout_seconds or self.settings.atc_mcp_timeout_seconds)
-        retries = max(1, int(self.settings.atc_mcp_max_retries) + 1)
+        timeout = float(server.timeout_seconds or self.settings.mcp_timeout_seconds)
+        retries = max(1, int(self.settings.mcp_max_retries) + 1)
         last_error: Exception | None = None
 
         for _ in range(retries):

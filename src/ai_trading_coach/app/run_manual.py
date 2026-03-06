@@ -34,7 +34,7 @@ def run(
         run_date=date.fromisoformat(run_date),
         trigger_type=TriggerType.MANUAL,
         raw_log_text=text,
-        options={"dry_run": dry_run, "debug_mode": settings.atc_debug},
+        options={"dry_run": dry_run, "debug_mode": settings.debug},
     )
 
     result = orchestrator.run(request)

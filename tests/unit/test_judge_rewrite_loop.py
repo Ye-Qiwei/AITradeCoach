@@ -164,12 +164,12 @@ def test_judge_failure_triggers_rewrite_and_passes_within_n_rounds() -> None:
 
     settings = Settings(
         _env_file=None,
-        atc_llm_provider="openai",
+        llm_provider_name="openai",
         openai_api_key="test-key",
-        atc_agent_max_rewrite_rounds=2,
-        atc_mcp_servers='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
-        atc_evidence_tool_map='{"price_path":"srv:price_history"}',
-        atc_mcp_tool_allowlist="srv:price_history",
+        agent_max_rewrite_rounds=2,
+        mcp_servers_json='[{"server_id":"srv","transport":"stdio","command":"noop"}]',
+        evidence_tool_map_json='{"price_path":"srv:price_history"}',
+        mcp_tool_allowlist_csv="srv:price_history",
     )
 
     async def invoker(server_id: str, tool_name: str, arguments: dict[str, object]):
