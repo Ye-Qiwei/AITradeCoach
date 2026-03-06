@@ -1,7 +1,7 @@
----
+0331C177.T---
 date: 2026-02-27
 tags: [daily_log]
-traded_tickers: [KO,FUND_eMAXIS Slim 新興国株式インデックス,FUND_野村世界業種別シリーズ（世界半導体投資）]
+traded_tickers: [KO,0331C177.T,01313098.T]
 mentioned_tickers: []
 ---
 
@@ -18,8 +18,8 @@ mentioned_tickers: []
 
 ## 交易记录
 - KO SELL 9股 80.16USD | reason=想卖出不赚钱的KO，换成现金准备购买更赚钱的NVDA或者抄底XPEV | source=直觉 | trig= | moment_emotion: 期待 | risk=
-- FUND_eMAXIS Slim 新興国株式インデックス BUY 31471口 25204JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得新兴国投资的回报率高。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
-- FUND_野村世界業種別シリーズ（世界半導体投資） BUY 3580口 279336JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得半导体行业有市场。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
+- 0331C177.T BUY 31471口 25204JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得新兴国投资的回报率高。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
+- 01313098.T BUY 3580口 279336JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得半导体行业有市场。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
 
 ## 扫描
 - anxiety: 

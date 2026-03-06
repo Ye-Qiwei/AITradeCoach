@@ -1,7 +1,7 @@
 ---
 date: 2026-02-25
 tags: [daily_log]
-traded_tickers: [FUND_eMAXIS Slim 新興国株式インデックス]
+traded_tickers: [0331C177.T]
 mentioned_tickers: []
 ---
 
@@ -17,7 +17,7 @@ mentioned_tickers: []
 - key_var: AI情绪
 
 ## 交易记录
-- FUND_eMAXIS Slim 新興国株式インデックス BUY 9674口 24809JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得新兴国投资的回报率高。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
+- 0331C177.T BUY 9674口 24809JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得新兴国投资的回报率高。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
 
 ## 扫描
 - anxiety: 

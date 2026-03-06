@@ -1,7 +1,7 @@
 ---
 date: 2026-02-26
 tags: [daily_log]
-traded_tickers: [FUND_キャッシュフロー経営評価オープン，5108.T]
+traded_tickers: [64311006.T，5108.T]
 mentioned_tickers: [7201.T]
 ---
 
@@ -17,7 +17,7 @@ mentioned_tickers: [7201.T]
 - key_var: AI情绪
 
 ## 交易记录
-- FUND_キャッシュフロー経営評価オープン BUY 50465口 39632JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得日股投资的回报率高。还不懂自己怎么选股。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
+- 64311006.T BUY 50465口 39632JPY/10000口 | reason=觉得基金在投资组合中占比太少，想加码投资基金。还觉得日股投资的回报率高。还不懂自己怎么选股。 | source=宏观 | trig= | moment_emotion: 期待 | risk=
 - 5108.T SELL 100股 3770JPY | reason=希望卖出收益率低的这个股票，换钱买收益率更高也很稳定的基金 | source=宏观 | trig= | moment_emotion: 失望 | risk=
 
 ## 扫描
