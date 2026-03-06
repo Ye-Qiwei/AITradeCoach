@@ -1,4 +1,4 @@
-"""Workflow definitions for the daily review pipeline."""
+"""Workflow definitions for the LangGraph ReAct daily review pipeline."""
 
 from __future__ import annotations
 
@@ -15,9 +15,9 @@ class WorkflowStep:
 
 
 DAILY_REVIEW_STEPS: tuple[WorkflowStep, ...] = (
-    WorkflowStep(1, ModuleName.LOG_INTAKE, "LLM combined parse: log normalization + cognition state"),
-    WorkflowStep(2, ModuleName.EVIDENCE_PLANNER, "Planner agent creates MCP subtask plan"),
-    WorkflowStep(3, ModuleName.MCP_GATEWAY, "Executor runs MCP subtasks in parallel"),
-    WorkflowStep(4, ModuleName.REPORT_GENERATOR, "Reporter drafts markdown report with citations"),
-    WorkflowStep(5, ModuleName.EVALUATOR, "Judge validates and triggers rewrite loop when needed"),
+    WorkflowStep(1, ModuleName.LOG_INTAKE, "Parser builds normalized log and cognition state"),
+    WorkflowStep(2, ModuleName.MCP_GATEWAY, "ReAct research agent gathers MCP evidence with tool calling"),
+    WorkflowStep(3, ModuleName.REPORT_GENERATOR, "Reporter drafts markdown report with citations"),
+    WorkflowStep(4, ModuleName.EVALUATOR, "Judge validates draft and conditionally triggers rewrite"),
+    WorkflowStep(5, ModuleName.ORCHESTRATOR, "Finalize TaskResult from LangGraph terminal node"),
 )

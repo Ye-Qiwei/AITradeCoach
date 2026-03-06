@@ -9,10 +9,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ai_trading_coach.config import Settings
-from ai_trading_coach.domain.agent_models import CombinedParseResult, Plan
+from ai_trading_coach.domain.agent_models import CombinedParseResult
 from ai_trading_coach.domain.react_models import ReActStep, ResearchSummary
 from ai_trading_coach.llm.provider import LLMProvider
-from ai_trading_coach.modules.agent.planner_agent import PlannerAgent
 from ai_trading_coach.modules.agent.react_tools import ReactResearchTools
 
 
@@ -43,12 +42,10 @@ class ReActResearchAgent:
         provider: LLMProvider,
         tools: ReactResearchTools,
         settings: Settings,
-        planner_agent: PlannerAgent | None = None,
     ) -> None:
         self.provider = provider
         self.tools = tools
         self.settings = settings
-        self.planner_agent = planner_agent
 
     def run(self, *, request_id: str, user_id: str, parse_result: CombinedParseResult) -> ResearchSummary:
         max_iterations = max(1, self.settings.react_max_iterations)
@@ -56,14 +53,12 @@ class ReActResearchAgent:
         steps: list[ReActStep] = []
         evidence_items = []
         failures = 0
-        bootstrap_plan: Plan | None = None
 
         for idx in range(1, max_iterations + 1):
             decision = self._decide(
                 parse_result=parse_result,
                 steps=steps,
                 evidence_count=len(evidence_items),
-                plan=bootstrap_plan,
             )
             step = ReActStep(
                 step_index=idx,
@@ -73,19 +68,7 @@ class ReActResearchAgent:
                 started_at=utc_now(),
             )
 
-            if decision.action == "bootstrap_investigation_plan":
-                if self.planner_agent is None:
-                    step.success = False
-                    step.error_message = "planner unavailable"
-                    step.observation_summary = "Planner is unavailable in this runtime."
-                else:
-                    planner_context = {
-                        "react_mode": True,
-                        "already_collected_items": len(evidence_items),
-                    }
-                    bootstrap_plan, _ = self.planner_agent.plan(parse_result=parse_result, planner_context=planner_context)
-                    step.observation_summary = f"bootstrap_plan_subtasks={len(bootstrap_plan.subtasks)}"
-            elif decision.action == "finish_research":
+            if decision.action == "finish_research":
                 if len(evidence_items) < self.settings.react_require_min_sources:
                     step.success = False
                     step.error_message = "insufficient_evidence"
@@ -129,7 +112,6 @@ class ReActResearchAgent:
         parse_result: CombinedParseResult,
         steps: list[ReActStep],
         evidence_count: int,
-        plan: Plan | None,
     ) -> _ActionDecision:
         messages = [
             {
@@ -137,7 +119,7 @@ class ReActResearchAgent:
                 "content": (
                     "You are a ReAct research agent. Choose one action from: "
                     "get_price_history, search_news, list_filings, get_macro_series, "
-                    "bootstrap_investigation_plan, finish_research. Return JSON only."
+                    "finish_research. Return JSON only."
                 ),
             },
             {
@@ -147,7 +129,6 @@ class ReActResearchAgent:
                         "parse_result": parse_result.model_dump(mode="json"),
                         "evidence_count": evidence_count,
                         "recent_steps": [s.model_dump(mode="json") for s in steps[-4:]],
-                        "bootstrap_plan": plan.model_dump(mode="json") if plan else None,
                     },
                     ensure_ascii=False,
                 ),

@@ -8,7 +8,7 @@ from datetime import date
 from typing import Any
 
 from ai_trading_coach.config import Settings
-from ai_trading_coach.domain.agent_models import CombinedParseResult, Plan
+from ai_trading_coach.domain.agent_models import CombinedParseResult
 from ai_trading_coach.domain.models import EvidenceItem, EvidencePacket
 
 
@@ -51,13 +51,13 @@ class ContextBuilderV2:
         self,
         *,
         evidence_packet: EvidencePacket,
-        plan: Plan,
         intent: list[str],
+        investigation_outline: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         evidence_rows = [self._item_to_row(item) for item in self._iter_packet_items(evidence_packet)]
         selected = self._top_k_bucketed(evidence_rows, per_bucket=2, total_k=30)
         payload = {
-            "plan": plan.model_dump(mode="json"),
+            "investigation_outline": investigation_outline or {},
             "intent": intent,
             "evidence": selected,
             "source_index": [
@@ -78,13 +78,11 @@ class ContextBuilderV2:
         report_markdown: str,
         evidence_packet: EvidencePacket,
         intent: list[str],
-        plan: Plan,
         rewrite_instruction: str | None,
     ) -> dict[str, Any]:
         payload = {
             "report_markdown": report_markdown,
             "intent": intent,
-            "plan_risk_uncertainties": plan.risk_uncertainties,
             "source_ids": [source.source_id for source in evidence_packet.source_registry],
             "rewrite_instruction_used": rewrite_instruction,
         }

@@ -6,7 +6,7 @@ import json
 
 from pydantic import ValidationError
 
-from ai_trading_coach.domain.agent_models import Plan, ReporterDraft
+from ai_trading_coach.domain.agent_models import ReporterDraft
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import EvidencePacket, ModelCallTrace
 from ai_trading_coach.errors import LLMOutputValidationError
@@ -28,14 +28,12 @@ class ReporterAgent:
         evidence_packet: EvidencePacket,
         report_context: dict[str, object],
         intent: list[str],
-        plan: Plan,
         rewrite_instruction: str | None = None,
     ) -> tuple[ReporterDraft, ModelCallTrace | None]:
         messages = self._build_messages(
             evidence_packet=evidence_packet,
             report_context=report_context,
             intent=intent,
-            plan=plan,
             rewrite_instruction=rewrite_instruction,
         )
         payload = self.provider.chat_json(
@@ -69,7 +67,6 @@ class ReporterAgent:
         evidence_packet: EvidencePacket,
         report_context: dict[str, object],
         intent: list[str],
-        plan: Plan,
         rewrite_instruction: str | None,
     ) -> list[dict[str, str]]:
         system_prompt = (
@@ -79,7 +76,6 @@ class ReporterAgent:
         )
         user_payload = {
             "intent": intent,
-            "plan": plan.model_dump(mode="json"),
             "source_index": [
                 {
                     "source_id": source.source_id,

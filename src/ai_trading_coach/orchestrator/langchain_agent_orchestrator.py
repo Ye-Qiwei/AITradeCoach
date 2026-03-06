@@ -1,20 +1,43 @@
-"""Compatibility wrapper for pipeline orchestrator with ReAct research stage."""
+"""Graph-backed orchestrator using LangGraph as runtime."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from typing import Any
+
 from ai_trading_coach.domain.models import ReviewRunRequest, TaskResult
-from ai_trading_coach.orchestrator.system_orchestrator import PipelineOrchestrator
+from ai_trading_coach.orchestrator.langgraph_state import OrchestratorGraphState
 
 
 class LangChainAgentOrchestrator:
-    """Backward-compatible facade preserving run(request)->TaskResult contract."""
+    """Orchestrator that invokes a compiled LangGraph state machine."""
 
-    def __init__(self, *, legacy_orchestrator: PipelineOrchestrator, chat_model: object | None = None) -> None:
-        self.legacy_orchestrator = legacy_orchestrator
+    def __init__(self, *, compiled_graph: Any, chat_model: object | None = None) -> None:
+        self.compiled_graph = compiled_graph
         self.chat_model = chat_model
 
     def run(self, request: ReviewRunRequest) -> TaskResult:
-        return self.legacy_orchestrator.run(request)
+        initial_state: OrchestratorGraphState = {
+            "request": request,
+            "messages": [],
+            "rewrite_count": 0,
+            "model_calls": [],
+            "tool_calls": [],
+            "errors": [],
+        }
+        output = self.compiled_graph.invoke(initial_state)
+        return output["final_result"]
+
+    def stream(self, request: ReviewRunRequest) -> Iterator[dict[str, Any]]:
+        initial_state: OrchestratorGraphState = {
+            "request": request,
+            "messages": [],
+            "rewrite_count": 0,
+            "model_calls": [],
+            "tool_calls": [],
+            "errors": [],
+        }
+        yield from self.compiled_graph.stream(initial_state)
 
 
 __all__ = ["LangChainAgentOrchestrator"]

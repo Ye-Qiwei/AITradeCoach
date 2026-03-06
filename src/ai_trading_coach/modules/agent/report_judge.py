@@ -7,7 +7,7 @@ import re
 
 from pydantic import ValidationError
 
-from ai_trading_coach.domain.agent_models import JudgeVerdict, Plan
+from ai_trading_coach.domain.agent_models import JudgeVerdict
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import EvidencePacket, ModelCallTrace
 from ai_trading_coach.errors import LLMOutputValidationError
@@ -31,14 +31,12 @@ class ReportJudge:
         judge_context: dict[str, object],
         intent: list[str],
         evidence_packet: EvidencePacket,
-        plan: Plan,
     ) -> tuple[JudgeVerdict, ModelCallTrace | None]:
         rule_verdict = self._rule_check(report_markdown=report_markdown, evidence_packet=evidence_packet)
         messages = self._build_messages(
             report_markdown=report_markdown,
             judge_context=judge_context,
             intent=intent,
-            plan=plan,
             rule_verdict=rule_verdict,
         )
         payload = self.provider.chat_json(
@@ -125,7 +123,6 @@ class ReportJudge:
         report_markdown: str,
         judge_context: dict[str, object],
         intent: list[str],
-        plan: Plan,
         rule_verdict: JudgeVerdict,
     ) -> list[dict[str, str]]:
         system_prompt = (
@@ -136,7 +133,6 @@ class ReportJudge:
         user_payload = {
             "report_markdown": report_markdown,
             "intent": intent,
-            "plan": plan.model_dump(mode="json"),
             "judge_context": judge_context,
             "rule_verdict": rule_verdict.model_dump(mode="json"),
         }
