@@ -1,11 +1,13 @@
 {
   "active_versions": {
-    "log_understanding": "v1",
+    "log_understanding": "v2",
+    "research_synthesis": "v1",
+    "report_generation": "v2",
+    "report_judging": "v1",
     "cognition_extraction": "v1",
     "evidence_planning": "v1",
     "window_selection": "v1",
     "cognition_evaluation": "v1",
-    "report_generation": "v1",
     "self_improvement": "v1"
   }
 }

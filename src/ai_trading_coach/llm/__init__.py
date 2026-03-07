@@ -1,6 +1,6 @@
-"""LLM provider abstractions and provider registry."""
+"""LLM package exports."""
 
-from .provider import LLMCallRecord, LLMProvider
-from .registry import build_llm_provider, build_required_llm_provider
+from .gateway import LangChainLLMGateway
+from .langchain_chat_model import build_langchain_chat_model
 
-__all__ = ["LLMCallRecord", "LLMProvider", "build_llm_provider", "build_required_llm_provider"]
+__all__ = ["LangChainLLMGateway", "build_langchain_chat_model"]

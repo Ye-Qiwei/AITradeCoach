@@ -25,5 +25,5 @@ class OrchestratorGraphState(TypedDict, total=False):
     rewrite_count: int
     model_calls: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
-    react_steps: list[Any]
+    react_steps: list[dict[str, Any]]
     final_result: TaskResult

@@ -85,6 +85,31 @@ class ResearchOutput(ExtensibleModel):
     judgement_evidence: list[JudgementEvidence] = Field(default_factory=list)
     stop_reason: str = ""
 
+    def validate_against(self, judgement_ids: set[str], evidence_ids: set[str]) -> None:
+        seen: set[str] = set()
+        for item in self.judgement_evidence:
+            if item.judgement_id not in judgement_ids:
+                raise ValueError(f"Unknown judgement_id in research_output: {item.judgement_id}")
+            if item.judgement_id in seen:
+                raise ValueError(f"Duplicate judgement_id in research_output: {item.judgement_id}")
+            seen.add(item.judgement_id)
+            unknown = [eid for eid in item.evidence_item_ids if eid not in evidence_ids]
+            if unknown:
+                raise ValueError(f"Unknown evidence_item_ids for {item.judgement_id}: {unknown}")
+            if not item.sufficiency_reason.strip():
+                raise ValueError(f"Missing sufficiency_reason for {item.judgement_id}")
+        missing = sorted(judgement_ids - seen)
+        if missing:
+            raise ValueError(f"Missing judgements in research_output: {missing}")
+
+
+
+
+class ResearchSynthesisOutput(ExtensibleModel):
+    research_id: str
+    judgement_evidence: list[JudgementEvidence] = Field(default_factory=list)
+    stop_reason: str = ""
+
 
 class DailyJudgementFeedback(ExtensibleModel):
     judgement_id: str

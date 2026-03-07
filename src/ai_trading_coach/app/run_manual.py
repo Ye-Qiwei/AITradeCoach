@@ -21,7 +21,7 @@ def run(
     user_id: str = typer.Option("demo_user", help="User ID"),
     log_file: str = typer.Option("examples/logs/daily_log_sample.md", help="Path to markdown log"),
     run_date: str = typer.Option(date.today().isoformat(), help="Run date YYYY-MM-DD"),
-    dry_run: bool = typer.Option(True, help="Disable memory write"),
+    dry_run: bool = typer.Option(True, help="Disable memory + report/trace writes"),
 ) -> None:
     settings = get_settings()
     settings.validate_llm_or_raise()
@@ -38,10 +38,10 @@ def run(
     )
 
     result = orchestrator.run(request)
-    if result.report is not None:
+    if not dry_run and result.report is not None:
         report_path = Path(settings.report_output_dir) / f"{result.run_id}.md"
         report_path.write_text(result.report.markdown_body, encoding="utf-8")
-    if result.trace is not None:
+    if not dry_run and result.trace is not None:
         save_run_trace(result.trace, settings.trace_output_dir)
     typer.echo(result.model_dump_json(indent=2))
 

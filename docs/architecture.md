@@ -25,3 +25,10 @@
 - Long-term memory: `data/long_term_memory.json`（judgement 生命周期）
 
 `clear_traces` 仅清理 trace，不触碰长期记忆。
+
+
+## Daily Review LLM Architecture (Refactor)
+- Unified model invocation via `LangChainLLMGateway` (parser/research synthesis/reporter/judge all share one path).
+- ReAct research now has two explicit phases: evidence gathering and structured synthesis (`ResearchOutput`).
+- Research output enforces judgement-to-evidence ID validity and complete judgement coverage.
+- `dry_run=true` disables long-term memory writes and run artifact persistence.
