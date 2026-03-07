@@ -6,6 +6,8 @@ import re
 
 from ai_trading_coach.domain.agent_models import JudgeVerdict
 from ai_trading_coach.domain.enums import ModelCallPurpose
+from ai_trading_coach.domain.llm_output_adapters import judge_verdict_contract_to_domain
+from ai_trading_coach.domain.llm_output_contracts import JudgeVerdictContract
 from ai_trading_coach.domain.judgement_models import ALLOWED_EVALUATION_WINDOWS, DailyJudgementFeedback
 from ai_trading_coach.domain.models import EvidencePacket
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
@@ -36,8 +38,8 @@ class ReportJudge:
                 "rule_verdict": rule_verdict.model_dump(mode="json"),
             },
         )
-        llm_verdict, trace = self.gateway.invoke_structured(
-            schema=JudgeVerdict,
+        llm_contract, trace = self.gateway.invoke_structured(
+            schema=JudgeVerdictContract,
             messages=messages,
             purpose=ModelCallPurpose.COGNITION_EVALUATION,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
@@ -45,6 +47,7 @@ class ReportJudge:
             output_summary_builder=lambda out: f"passed={out.passed};coverage={out.citation_coverage:.2f}",
         )
 
+        llm_verdict = judge_verdict_contract_to_domain(llm_contract)
         merged = JudgeVerdict(
             passed=rule_verdict.passed and llm_verdict.passed,
             reasons=[*rule_verdict.reasons, *llm_verdict.reasons],

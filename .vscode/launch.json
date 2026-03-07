@@ -1,0 +1,40 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "ATC Debug Runner (fake MCP, OpenAI real)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/debug_run_manual.py",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "ATC CLI run_manual (real MCP path)",
+      "type": "python",
+      "request": "launch",
+      "module": "ai_trading_coach.app.run_manual",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "args": [
+        "run",
+        "--log-file",
+        "examples/logs/daily_log_sample.md",
+        "--run-date",
+        "2026-03-07",
+        "--dry-run",
+        "true"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from ai_trading_coach.domain.agent_models import ReporterOutput
+from ai_trading_coach.domain.llm_output_adapters import reporter_contract_to_domain
+from ai_trading_coach.domain.llm_output_contracts import ReporterOutputContract
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import EvidencePacket
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
@@ -16,7 +18,7 @@ class ReporterAgent:
         self.gateway = gateway
         self.prompt_manager = prompt_manager
 
-    def generate(self, *, evidence_packet: EvidencePacket, report_context: dict[str, object], rewrite_instruction: str | None = None):
+    def generate(self, *, evidence_packet: EvidencePacket, report_context: dict[str, object], rewrite_instruction: str | None = None) -> tuple[ReporterOutput, object | None]:
         prompt = self.prompt_manager.load_active(self.prompt_name)
         user_payload = {
             "report_context": report_context,
@@ -28,11 +30,12 @@ class ReporterAgent:
             },
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
-        return self.gateway.invoke_structured(
-            schema=ReporterOutput,
+        contract_out, trace = self.gateway.invoke_structured(
+            schema=ReporterOutputContract,
             messages=messages,
             purpose=ModelCallPurpose.REPORT_GENERATION,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgements', []))}",
             output_summary_builder=lambda out: f"markdown_chars={len(out.markdown)}; feedback_items={len(out.judgement_feedback)}",
         )
+        return reporter_contract_to_domain(contract_out), trace

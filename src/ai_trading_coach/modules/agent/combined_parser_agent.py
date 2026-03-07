@@ -6,6 +6,8 @@ from datetime import date
 
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.judgement_models import ParserOutput
+from ai_trading_coach.domain.llm_output_adapters import parser_contract_to_domain
+from ai_trading_coach.domain.llm_output_contracts import ParserOutputContract
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent.prompting import PromptManager
 
@@ -34,11 +36,12 @@ class CombinedParserAgent:
             ],
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
-        return self.gateway.invoke_structured(
-            schema=ParserOutput,
+        contract_out, trace = self.gateway.invoke_structured(
+            schema=ParserOutputContract,
             messages=messages,
             purpose=ModelCallPurpose.LOG_UNDERSTANDING,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"run_id={run_id}; chars={len(raw_log_text)}",
             output_summary_builder=lambda out: f"judgements={len(out.all_judgements())}; actions={len(out.trade_actions)}",
         )
+        return parser_contract_to_domain(contract_out), trace

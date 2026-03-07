@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from functools import lru_cache
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
 
@@ -11,9 +12,15 @@ from pydantic import BaseModel
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import ModelCallTrace
+from ai_trading_coach.domain.schema_validation import validate_strict_llm_schema
 from ai_trading_coach.llm.langchain_chat_model import build_langchain_chat_model
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+
+
+@lru_cache(maxsize=64)
+def _validate_schema_cached(schema: type[BaseModel]) -> None:
+    validate_strict_llm_schema(schema)
 
 
 def utc_now() -> datetime:
@@ -37,6 +44,7 @@ class LangChainLLMGateway:
     ) -> tuple[SchemaT, ModelCallTrace]:
         started_at = utc_now()
         t0 = time.perf_counter()
+        _validate_schema_cached(schema)
         structured_model = self.model.with_structured_output(schema)
         raw = structured_model.invoke(messages)
         result = raw if isinstance(raw, schema) else schema.model_validate(raw)

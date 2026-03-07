@@ -16,9 +16,10 @@ from ai_trading_coach.domain.judgement_models import (
     DailyJudgementFeedback,
     LongTermJudgementRecord,
     ResearchOutput,
-    ResearchSynthesisOutput,
     compute_due_date,
 )
+from ai_trading_coach.domain.llm_output_adapters import research_synthesis_contract_to_domain
+from ai_trading_coach.domain.llm_output_contracts import ResearchSynthesisOutputContract
 from ai_trading_coach.domain.models import (
     DailyReviewReport,
     ErrorRecord,
@@ -126,14 +127,15 @@ class LangGraphNodeRuntime:
             "react_steps": state.get("react_steps", []),
             "agent_messages": [getattr(m, "content", str(m)) for m in state.get("messages", [])[-8:]],
         }
-        out, trace = self.llm_gateway.invoke_structured(
-            schema=ResearchSynthesisOutput,
+        out_contract, trace = self.llm_gateway.invoke_structured(
+            schema=ResearchSynthesisOutputContract,
             messages=self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=payload),
             purpose=ModelCallPurpose.EVIDENCE_PLANNING,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"judgements={len(parse_result.all_judgements())}; evidence={len(all_items)}",
             output_summary_builder=lambda x: f"links={len(x.judgement_evidence)}",
         )
+        out = research_synthesis_contract_to_domain(out_contract)
         research_output = ResearchOutput.model_validate(out.model_dump(mode="json"))
         research_output.validate_against(
             {j.judgement_id for j in parse_result.all_judgements()},

@@ -20,3 +20,11 @@ Given run metadata + raw log text, output a `ParserOutput` JSON object.
 - Do not fabricate market data.
 - Do not invent citations outside raw_log_text.
 - Do not output markdown; output JSON object only.
+
+# Strict Schema Compliance
+- You MUST output every field defined by the target schema; do not omit any field.
+- You MUST NOT output fields that are not defined by the schema.
+- For unknown string values, output an empty string: "".
+- For unknown list values, output an empty array: [].
+- Enumerated fields (window/support signal/feedback labels and other enums) must use only allowed values.
+- Field omission is not allowed.
