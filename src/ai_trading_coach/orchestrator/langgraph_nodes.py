@@ -89,8 +89,16 @@ class LangGraphNodeRuntime:
             }
         )
         evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=runtime.evidence_items)
+        raw_messages = result.get("messages", [])
+        agent_messages = []
+        for message in raw_messages:
+            if hasattr(message, "content"):
+                content = getattr(message, "content")
+                agent_messages.append(content if isinstance(content, str) else str(content))
+                continue
+            agent_messages.append(str(message))
         return {
-            "messages": result.get("messages", []),
+            "agent_messages": agent_messages,
             "evidence_packet": evidence_packet,
             "tool_calls": [t.model_dump(mode="json") for t in runtime.tool_traces],
             "react_steps": [s.model_dump(mode="json") for s in runtime.react_steps],
@@ -125,7 +133,7 @@ class LangGraphNodeRuntime:
             ],
             "tool_calls": state.get("tool_calls", []),
             "react_steps": state.get("react_steps", []),
-            "agent_messages": [getattr(m, "content", str(m)) for m in state.get("messages", [])[-8:]],
+            "agent_messages": state.get("agent_messages", [])[-8:],
         }
         out_contract, trace = self.llm_gateway.invoke_structured(
             schema=ResearchSynthesisOutputContract,

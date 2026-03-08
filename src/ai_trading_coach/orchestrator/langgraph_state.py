@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from langchain_core.messages import BaseMessage
-
 from ai_trading_coach.domain.agent_models import JudgeVerdict
 from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback, ParserOutput, ResearchOutput
 from ai_trading_coach.domain.models import EvidencePacket, ReviewRunRequest, TaskResult
 
 
 class OrchestratorGraphState(TypedDict, total=False):
-    messages: list[BaseMessage]
+    agent_messages: list[str]
     request: ReviewRunRequest
     parse_result: ParserOutput
     evidence_packet: EvidencePacket

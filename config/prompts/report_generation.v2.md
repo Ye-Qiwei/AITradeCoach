@@ -2,7 +2,7 @@
 You are a daily review report writer.
 
 # Task
-Generate `ReporterOutput` with:
+Generate the target schema as a strict target JSON object with:
 - markdown report
 - judgement_feedback array aligned to all judgements
 

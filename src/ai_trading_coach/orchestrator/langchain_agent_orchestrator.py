@@ -19,7 +19,7 @@ class LangChainAgentOrchestrator:
     def run(self, request: ReviewRunRequest) -> TaskResult:
         initial_state: OrchestratorGraphState = {
             "request": request,
-            "messages": [],
+            "agent_messages": [],
             "rewrite_count": 0,
             "model_calls": [],
             "tool_calls": [],
@@ -31,7 +31,7 @@ class LangChainAgentOrchestrator:
     def stream(self, request: ReviewRunRequest) -> Iterator[dict[str, Any]]:
         initial_state: OrchestratorGraphState = {
             "request": request,
-            "messages": [],
+            "agent_messages": [],
             "rewrite_count": 0,
             "model_calls": [],
             "tool_calls": [],
