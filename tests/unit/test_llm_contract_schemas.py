@@ -6,7 +6,7 @@ from ai_trading_coach.domain.llm_output_contracts import (
     JudgeVerdictContract,
     ParserOutputContract,
     ReporterOutputContract,
-    ResearchSynthesisOutputContract,
+    ResearchAgentFinalContract,
 )
 from ai_trading_coach.domain.schema_validation import validate_strict_llm_schema
 
@@ -57,7 +57,7 @@ def _walk_objects(schema: dict[str, Any], node: Any) -> None:
 def test_contract_schemas_are_strict_and_validator_accepts_them() -> None:
     for model_cls in (
         ParserOutputContract,
-        ResearchSynthesisOutputContract,
+        ResearchAgentFinalContract,
         ReporterOutputContract,
         JudgeVerdictContract,
     ):

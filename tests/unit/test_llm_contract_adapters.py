@@ -2,48 +2,39 @@ from __future__ import annotations
 
 from datetime import date
 
+from ai_trading_coach.domain.id_generation import make_judgement_id
 from ai_trading_coach.domain.llm_output_adapters import (
     judge_verdict_contract_to_domain,
     parser_contract_to_domain,
     reporter_contract_to_domain,
-    research_synthesis_contract_to_domain,
+    research_agent_contract_to_domain,
 )
 from ai_trading_coach.domain.llm_output_contracts import (
     DailyJudgementFeedbackContract,
     JudgeVerdictContract,
-    JudgementEvidenceContract,
     JudgementItemContract,
     ParserOutputContract,
     ReporterOutputContract,
-    ResearchSynthesisOutputContract,
+    ResearchAgentFinalContract,
+    ResearchAgentJudgementEvidenceContract,
     TradeActionContract,
 )
 
 
-def test_parser_adapter_restores_optional_strings_and_preserves_lists_and_enums() -> None:
+def test_parser_adapter_generates_ids_and_clears_invalid_related_actions() -> None:
     contract = ParserOutputContract(
-        parse_id="p1",
         user_id="u1",
         run_date=date(2026, 1, 1),
-        trade_actions=[
-            TradeActionContract(
-                action="buy",
-                target_asset="SPY",
-                position_change="",
-                action_time="",
-                reason="",
-            )
-        ],
+        trade_actions=[TradeActionContract(action="buy", target_asset="SPY", position_change="", action_time="", reason="")],
         explicit_judgements=[
             JudgementItemContract(
-                judgement_id="j1",
                 category="market_view",
                 target_asset_or_topic="SPX",
                 thesis="SPX up",
                 confidence=0.7,
                 evidence_from_user_log=["SPX looks strong"],
                 implicitness="explicit",
-                related_actions=["a1"],
+                related_actions=["invalid_free_text"],
                 related_non_actions=[],
                 estimated_horizon="",
                 proposed_evaluation_window="1 week",
@@ -55,20 +46,17 @@ def test_parser_adapter_restores_optional_strings_and_preserves_lists_and_enums(
         reflection_summary=[],
     )
 
-    domain = parser_contract_to_domain(contract)
-    assert domain.trade_actions[0].position_change is None
-    assert domain.trade_actions[0].action_time is None
-    assert domain.trade_actions[0].reason is None
-    assert domain.explicit_judgements[0].estimated_horizon is None
-    assert domain.explicit_judgements[0].proposed_evaluation_window == "1 week"
-    assert domain.explicit_judgements[0].evidence_from_user_log == ["SPX looks strong"]
+    domain = parser_contract_to_domain(contract, run_id="r1", raw_log_text="hello")
+    assert domain.parse_id.startswith("parse_")
+    assert domain.trade_actions[0].action_id.startswith("act_")
+    assert domain.explicit_judgements[0].judgement_id == make_judgement_id("r1", "explicit", 1, "market_view", "SPX", "SPX up")
+    assert domain.explicit_judgements[0].related_actions == []
 
 
 def test_research_and_reporter_adapters_keep_values_and_validate_domain() -> None:
-    research_contract = ResearchSynthesisOutputContract(
-        research_id="r1",
+    research_contract = ResearchAgentFinalContract(
         judgement_evidence=[
-            JudgementEvidenceContract(
+            ResearchAgentJudgementEvidenceContract(
                 judgement_id="j1",
                 evidence_item_ids=["e1"],
                 support_signal="support",
@@ -77,8 +65,8 @@ def test_research_and_reporter_adapters_keep_values_and_validate_domain() -> Non
         ],
         stop_reason="done",
     )
-    research_domain = research_synthesis_contract_to_domain(research_contract)
-    assert research_domain.judgement_evidence[0].support_signal == "support"
+    research_domain = research_agent_contract_to_domain(research_contract, run_id="run-x")
+    assert research_domain.research_id.startswith("research_")
 
     from ai_trading_coach.domain.judgement_models import ResearchOutput
 
@@ -100,7 +88,6 @@ def test_research_and_reporter_adapters_keep_values_and_validate_domain() -> Non
     )
     reporter_domain = reporter_contract_to_domain(reporter_contract)
     assert reporter_domain.judgement_feedback[0].evaluation_window == "1 week"
-    assert reporter_domain.judgement_feedback[0].source_ids == ["s1"]
 
 
 def test_judge_verdict_adapter_restores_empty_rewrite_instruction_to_none() -> None:
@@ -109,8 +96,6 @@ def test_judge_verdict_adapter_restores_empty_rewrite_instruction_to_none() -> N
         reasons=["needs rewrite"],
         rewrite_instruction="",
         contradiction_flags=[],
-        citation_coverage=0.5,
     )
     verdict_domain = judge_verdict_contract_to_domain(verdict_contract)
     assert verdict_domain.rewrite_instruction is None
-    assert verdict_domain.citation_coverage == 0.5

@@ -10,7 +10,12 @@ from ai_trading_coach.orchestrator.langgraph_nodes import LangGraphNodeRuntime
 
 class _FakeJudgement:
     judgement_id = "j1"
+    category = "market_view"
+    target_asset_or_topic = "SPY"
     thesis = "thesis"
+    evidence_from_user_log = ["note"]
+    implicitness = "explicit"
+    proposed_evaluation_window = "1 week"
 
 
 class _FakeParseResult:
@@ -19,7 +24,7 @@ class _FakeParseResult:
 
 
 class _FakeMessageText:
-    content = "agent says hi"
+    content = '{"judgement_evidence":[{"judgement_id":"j1","evidence_item_ids":[],"support_signal":"uncertain","sufficiency_reason":"none"}],"stop_reason":"done"}'
 
 
 class _FakeMessageObject:
@@ -33,7 +38,7 @@ class _FakeMessageBare:
 
 class _FakeAgent:
     def invoke(self, _payload):
-        return {"messages": [_FakeMessageText(), _FakeMessageObject(), _FakeMessageBare()]}
+        return {"messages": [_FakeMessageObject(), _FakeMessageBare(), _FakeMessageText()]}
 
 
 class _FakeToolTrace:
@@ -52,14 +57,20 @@ class _FakeRuntime:
     react_steps = [_FakeStep()]
 
 
+class _FakePromptManager:
+    def load_active(self, _name):
+        return type("Prompt", (), {"system_prompt": "sys"})()
+
+
 def test_react_research_sanitizes_agent_messages(monkeypatch) -> None:
-    monkeypatch.setattr("ai_trading_coach.orchestrator.langgraph_nodes.create_react_agent", lambda *_: _FakeAgent())
+    monkeypatch.setattr("ai_trading_coach.orchestrator.langgraph_nodes.create_agent", lambda **_: _FakeAgent())
     monkeypatch.setattr("ai_trading_coach.orchestrator.langgraph_nodes.build_langchain_mcp_tools", lambda **_: [])
     monkeypatch.setattr("ai_trading_coach.orchestrator.langgraph_nodes.MCPToolRuntime", _FakeRuntime)
-    monkeypatch.setattr(
-        "ai_trading_coach.orchestrator.langgraph_nodes.build_evidence_packet",
-        lambda **_: {"packet": "ok"},
-    )
+    monkeypatch.setattr("ai_trading_coach.orchestrator.langgraph_nodes.build_evidence_packet", lambda **_: type("Packet", (), {
+        "price_evidence": [], "news_evidence": [], "filing_evidence": [], "sentiment_evidence": [],
+        "market_regime_evidence": [], "discussion_evidence": [], "analog_evidence": [], "macro_evidence": [],
+        "source_registry": []
+    })())
 
     runtime = LangGraphNodeRuntime(
         parser_agent=None,
@@ -71,7 +82,7 @@ def test_react_research_sanitizes_agent_messages(monkeypatch) -> None:
         settings=Settings(llm_provider_name="openai", openai_api_key="test"),
         long_term_store=None,
         llm_gateway=None,
-        prompt_manager=None,
+        prompt_manager=_FakePromptManager(),
     )
 
     result = runtime.react_research(
@@ -87,5 +98,6 @@ def test_react_research_sanitizes_agent_messages(monkeypatch) -> None:
         }
     )
 
-    assert result["agent_messages"] == ["agent says hi", "{'detail': 1}", "bare-message"]
+    assert result["agent_messages"][-1].startswith('{"judgement_evidence"')
     assert "messages" not in result
+    assert result["research_output"].judgement_evidence[0].support_signal == "uncertain"

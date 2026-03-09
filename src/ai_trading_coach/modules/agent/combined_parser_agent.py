@@ -44,4 +44,4 @@ class CombinedParserAgent:
             input_summary=f"run_id={run_id}; chars={len(raw_log_text)}",
             output_summary_builder=lambda out: f"judgements={len(out.all_judgements())}; actions={len(out.trade_actions)}",
         )
-        return parser_contract_to_domain(contract_out), trace
+        return parser_contract_to_domain(contract_out, run_id=run_id, raw_log_text=raw_log_text), trace

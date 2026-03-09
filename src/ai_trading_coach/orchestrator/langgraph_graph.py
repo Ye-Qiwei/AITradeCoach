@@ -12,7 +12,6 @@ def build_review_graph(runtime: LangGraphNodeRuntime):
     graph = StateGraph(OrchestratorGraphState)
     graph.add_node("parse_log", runtime.parse_log)
     graph.add_node("react_research", runtime.react_research)
-    graph.add_node("synthesize_research_output", runtime.synthesize_research_output)
     graph.add_node("build_report_context", runtime.build_report_context)
     graph.add_node("generate_report", runtime.generate_report)
     graph.add_node("judge_report", runtime.judge_report)
@@ -21,8 +20,7 @@ def build_review_graph(runtime: LangGraphNodeRuntime):
 
     graph.add_edge(START, "parse_log")
     graph.add_edge("parse_log", "react_research")
-    graph.add_edge("react_research", "synthesize_research_output")
-    graph.add_edge("synthesize_research_output", "build_report_context")
+    graph.add_edge("react_research", "build_report_context")
     graph.add_edge("build_report_context", "generate_report")
     graph.add_edge("generate_report", "judge_report")
 

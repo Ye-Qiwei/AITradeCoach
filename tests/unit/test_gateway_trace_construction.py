@@ -17,7 +17,6 @@ class _StructuredModelOK:
             "reasons": ["ok"],
             "rewrite_instruction": "",
             "contradiction_flags": [],
-            "citation_coverage": 1.0,
         }
 
 
@@ -51,7 +50,6 @@ class _ModelWarns:
             "reasons": ["ok"],
             "rewrite_instruction": "",
             "contradiction_flags": [],
-            "citation_coverage": 1.0,
         }
 
 

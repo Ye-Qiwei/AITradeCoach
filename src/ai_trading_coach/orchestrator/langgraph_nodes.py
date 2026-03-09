@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
-from langgraph.prebuilt import create_react_agent
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.agent_models import JudgeVerdict
-from ai_trading_coach.domain.enums import EvaluationCategory, ModuleName, ModelCallPurpose, RunStatus
-from ai_trading_coach.domain.judgement_models import (
-    DailyJudgementFeedback,
-    LongTermJudgementRecord,
-    ResearchOutput,
-    compute_due_date,
-)
-from ai_trading_coach.domain.llm_output_adapters import research_synthesis_contract_to_domain
-from ai_trading_coach.domain.llm_output_contracts import ResearchSynthesisOutputContract
+from ai_trading_coach.domain.enums import EvaluationCategory, ModuleName, RunStatus
+from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback, LongTermJudgementRecord, ResearchOutput, compute_due_date
+from ai_trading_coach.domain.llm_output_adapters import research_agent_contract_to_domain
+from ai_trading_coach.domain.llm_output_contracts import ResearchAgentFinalContract
 from ai_trading_coach.domain.models import (
     DailyReviewReport,
     ErrorRecord,
@@ -34,6 +30,7 @@ from ai_trading_coach.domain.models import (
     StepResult,
     TaskResult,
 )
+from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent import CombinedParserAgent, ContextBuilderV2, ReportJudge, ReporterAgent
 from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime, build_langchain_mcp_tools
 from ai_trading_coach.modules.agent.prompting import PromptManager
@@ -41,11 +38,28 @@ from ai_trading_coach.modules.agent.react_tools import build_evidence_packet
 from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator.langgraph_state import OrchestratorGraphState
-from ai_trading_coach.llm.gateway import LangChainLLMGateway
 
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _extract_agent_messages(raw_messages: list[Any]) -> list[str]:
+    out: list[str] = []
+    for message in raw_messages:
+        content = getattr(message, "content", message)
+        out.append(content if isinstance(content, str) else str(content))
+    return out
+
+
+def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
+    structured = result.get("structured_response")
+    if structured is not None:
+        return ResearchAgentFinalContract.model_validate(structured)
+    messages = _extract_agent_messages(result.get("messages", []))
+    if not messages:
+        raise ValueError("Research agent produced no output messages.")
+    return ResearchAgentFinalContract.model_validate(json.loads(messages[-1]))
 
 
 @dataclass
@@ -73,85 +87,44 @@ class LangGraphNodeRuntime:
         parse_result = state["parse_result"]
         runtime = MCPToolRuntime()
         tools = build_langchain_mcp_tools(mcp_manager=self.mcp_manager, runtime=runtime)
-        agent = create_react_agent(self.chat_model, tools)
-        judgement_prompt = "\n".join(f"- {j.judgement_id}: {j.thesis}" for j in parse_result.all_judgements())
-        result = agent.invoke(
+        prompt = self.prompt_manager.load_active("research_agent")
+        agent = create_agent(model=self.chat_model, tools=tools, system_prompt=prompt.system_prompt)
+        judgements = [
             {
-                "messages": [
-                    HumanMessage(
-                        content=(
-                            "Research each judgement. For every tool call, include judgement_ids argument. "
-                            "If evidence is insufficient, state it explicitly.\nJudgements:\n"
-                            f"{judgement_prompt}"
-                        )
-                    )
-                ]
+                "judgement_id": j.judgement_id,
+                "category": j.category,
+                "target_asset_or_topic": j.target_asset_or_topic,
+                "thesis": j.thesis,
+                "evidence_from_user_log": j.evidence_from_user_log,
+                "implicitness": j.implicitness,
+                "proposed_evaluation_window": j.proposed_evaluation_window,
             }
-        )
+            for j in parse_result.all_judgements()
+        ]
+        result = agent.invoke({"messages": [HumanMessage(content=json.dumps({"task": "Research all judgements and output final strict JSON.", "judgements": judgements}, ensure_ascii=False))]})
+
         evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=runtime.evidence_items)
-        raw_messages = result.get("messages", [])
-        agent_messages = []
-        for message in raw_messages:
-            if hasattr(message, "content"):
-                content = getattr(message, "content")
-                agent_messages.append(content if isinstance(content, str) else str(content))
-                continue
-            agent_messages.append(str(message))
+        final_contract = _parse_final_contract(result)
+        synthesis_out = research_agent_contract_to_domain(final_contract, run_id=req.run_id)
+        research_output = ResearchOutput.model_validate(synthesis_out.model_dump(mode="json"))
+        all_items = [
+            *evidence_packet.price_evidence,
+            *evidence_packet.news_evidence,
+            *evidence_packet.filing_evidence,
+            *evidence_packet.sentiment_evidence,
+            *evidence_packet.market_regime_evidence,
+            *evidence_packet.discussion_evidence,
+            *evidence_packet.analog_evidence,
+            *evidence_packet.macro_evidence,
+        ]
+        research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
         return {
-            "agent_messages": agent_messages,
+            "agent_messages": _extract_agent_messages(result.get("messages", [])),
             "evidence_packet": evidence_packet,
             "tool_calls": [t.model_dump(mode="json") for t in runtime.tool_traces],
             "react_steps": [s.model_dump(mode="json") for s in runtime.react_steps],
+            "research_output": research_output,
         }
-
-    def synthesize_research_output(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        req = state["request"]
-        parse_result = state["parse_result"]
-        packet = state["evidence_packet"]
-        prompt = self.prompt_manager.load_active("research_synthesis")
-        all_items = [
-            *packet.price_evidence,
-            *packet.news_evidence,
-            *packet.filing_evidence,
-            *packet.sentiment_evidence,
-            *packet.market_regime_evidence,
-            *packet.discussion_evidence,
-            *packet.analog_evidence,
-            *packet.macro_evidence,
-        ]
-        payload = {
-            "run_id": req.run_id,
-            "judgements": [j.model_dump(mode="json") for j in parse_result.all_judgements()],
-            "evidence_index": [
-                {
-                    "item_id": e.item_id,
-                    "summary": e.summary,
-                    "source_ids": [s.source_id for s in e.sources],
-                    "judgement_ids": e.extensions.get("judgement_ids", []),
-                }
-                for e in all_items
-            ],
-            "tool_calls": state.get("tool_calls", []),
-            "react_steps": state.get("react_steps", []),
-            "agent_messages": state.get("agent_messages", [])[-8:],
-        }
-        out_contract, trace = self.llm_gateway.invoke_structured(
-            schema=ResearchSynthesisOutputContract,
-            messages=self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=payload),
-            purpose=ModelCallPurpose.EVIDENCE_PLANNING,
-            prompt_version=f"{prompt.prompt_name}.{prompt.version}",
-            input_summary=f"judgements={len(parse_result.all_judgements())}; evidence={len(all_items)}",
-            output_summary_builder=lambda x: f"links={len(x.judgement_evidence)}",
-        )
-        out = research_synthesis_contract_to_domain(out_contract)
-        research_output = ResearchOutput.model_validate(out.model_dump(mode="json"))
-        research_output.validate_against(
-            {j.judgement_id for j in parse_result.all_judgements()},
-            {item.item_id for item in all_items},
-        )
-        model_calls = list(state.get("model_calls", []))
-        model_calls.append(trace.model_dump(mode="json"))
-        return {"research_output": research_output, "model_calls": model_calls}
 
     def build_report_context(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         context = self.context_builder.for_reporter(parse_result=state["parse_result"], research_output=state["research_output"], evidence_packet=state["evidence_packet"])
@@ -168,12 +141,7 @@ class LangGraphNodeRuntime:
         return {"report_draft": out.markdown, "judgement_feedback": out.judgement_feedback, "model_calls": model_calls}
 
     def judge_report(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        judge_ctx = self.context_builder.for_judge(
-            report_markdown=state["report_draft"],
-            judgement_feedback=state.get("judgement_feedback", []),
-            parse_result=state["parse_result"],
-            research_output=state["research_output"],
-        )
+        judge_ctx = self.context_builder.for_judge(report_markdown=state["report_draft"], judgement_feedback=state.get("judgement_feedback", []), parse_result=state["parse_result"], research_output=state["research_output"])
         verdict, trace = self.report_judge.evaluate(report_markdown=state["report_draft"], judge_context=judge_ctx, evidence_packet=state["evidence_packet"])
         model_calls = list(state.get("model_calls", []))
         model_calls.append(trace.model_dump(mode="json"))
@@ -186,7 +154,6 @@ class LangGraphNodeRuntime:
         verdict: JudgeVerdict = state["judge_verdict"]
         if verdict.passed:
             return "pass"
-        # rewrite_count counts consumed failed drafts.
         if int(state.get("rewrite_count", 0)) <= self.settings.agent_max_rewrite_rounds:
             return "rewrite"
         return "fail"
@@ -211,16 +178,7 @@ class LangGraphNodeRuntime:
         if not req.options.dry_run:
             self.long_term_store.upsert_records(records)
             memory_results = [MemoryWriteResult(collection="long_term_memory", memory_ids=[r.judgement_id for r in records])]
-
-        report = DailyReviewReport(
-            report_id=f"report_{req.run_id}",
-            user_id=req.user_id,
-            report_date=req.run_date,
-            title=f"Daily Trading Review - {req.run_date}",
-            sections=[ReportSection(title="Daily Feedback", content=markdown)],
-            generated_prompt_version=self.settings.prompt_version,
-            markdown_body=markdown if markdown.endswith("\n") else markdown + "\n",
-        )
+        report = DailyReviewReport(report_id=f"report_{req.run_id}", user_id=req.user_id, report_date=req.run_date, title=f"Daily Trading Review - {req.run_date}", sections=[ReportSection(title="Daily Feedback", content=markdown)], generated_prompt_version=self.settings.prompt_version, markdown_body=markdown if markdown.endswith("\n") else markdown + "\n")
         trace = RunTrace(
             run_id=req.run_id,
             user_id=req.user_id,

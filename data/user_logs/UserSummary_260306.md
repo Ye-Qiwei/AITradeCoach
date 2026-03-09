@@ -1,5 +1,5 @@
 ---
-date: 2026-03-07
+date: 2026-03-06
 tags: [daily_log]
 traded_tickers: [1360.T]
 mentioned_tickers: [1211.HK,XPEV,4005.T]

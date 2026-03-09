@@ -17,6 +17,7 @@ def utc_now() -> datetime:
 
 
 class TradeAction(ExtensibleModel):
+    action_id: str = ""
     action: Literal["buy", "sell", "add", "reduce", "hold", "watch"]
     target_asset: str
     position_change: str | None = None

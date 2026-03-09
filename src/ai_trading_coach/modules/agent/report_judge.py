@@ -44,7 +44,7 @@ class ReportJudge:
             purpose=ModelCallPurpose.COGNITION_EVALUATION,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"sources={len(evidence_packet.source_registry)}",
-            output_summary_builder=lambda out: f"passed={out.passed};coverage={out.citation_coverage:.2f}",
+            output_summary_builder=lambda out: f"passed={out.passed};reasons={len(out.reasons)}",
         )
 
         llm_verdict = judge_verdict_contract_to_domain(llm_contract)
@@ -53,7 +53,7 @@ class ReportJudge:
             reasons=[*rule_verdict.reasons, *llm_verdict.reasons],
             rewrite_instruction=llm_verdict.rewrite_instruction or rule_verdict.rewrite_instruction,
             contradiction_flags=[*rule_verdict.contradiction_flags, *llm_verdict.contradiction_flags],
-            citation_coverage=min(rule_verdict.citation_coverage, llm_verdict.citation_coverage or 1.0),
+            citation_coverage=rule_verdict.citation_coverage,
         )
         return merged, trace
 

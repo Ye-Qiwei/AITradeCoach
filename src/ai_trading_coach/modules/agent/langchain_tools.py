@@ -144,7 +144,34 @@ async def _execute_tool_async(*, action_name: str, evidence_type: EvidenceType, 
 
     if not success:
         return f"tool_error: {err}"
-    return f"Fetched {len(items)} items from {tool_ref.key}. evidence_item_ids={step.evidence_item_ids}"
+    return _build_observation(tool_ref.key, items)
+
+
+def _compact_data_fields(data: dict[str, Any]) -> dict[str, Any]:
+    allow = {"close", "change_pct", "series_id", "filing_type", "company"}
+    return {k: v for k, v in data.items() if k in allow}
+
+
+def _truncate(text: str, limit: int = 280) -> str:
+    plain = " ".join(str(text).split())
+    return plain if len(plain) <= limit else plain[: limit - 3] + "..."
+
+
+def _build_observation(tool_key: str, items: list[EvidenceItem]) -> str:
+    top = items[:4]
+    lines = [f"tool={tool_key}; items={len(items)}; evidence_item_ids={[item.item_id for item in items]}"]
+    for item in top:
+        lines.append(
+            _truncate(
+                f"item_id={item.item_id}; judgement_ids={item.extensions.get('judgement_ids', [])}; "
+                f"title={item.title or ''}; summary={item.summary}; "
+                f"source_ids={[src.source_id for src in item.sources]}; "
+                f"related_tickers={item.related_tickers}; data={_compact_data_fields(item.data)}"
+            )
+        )
+    if len(items) > len(top):
+        lines.append(f"truncated={len(items) - len(top)} more items not expanded")
+    return "\n".join(lines)
 
 
 def _tool_category(evidence_type: EvidenceType) -> str:
