@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ai_trading_coach.domain.agent_models import PlanSubTask
 from ai_trading_coach.domain.enums import EvidenceType
@@ -26,6 +26,15 @@ class _ToolInput(BaseModel):
     tickers: list[str] = Field(default_factory=list)
     query: dict[str, Any] = Field(default_factory=dict)
     time_window: str | None = None
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _coerce_query(cls, value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str) and value.strip():
+            return {"query": value.strip()}
+        return {}
 
 
 @dataclass

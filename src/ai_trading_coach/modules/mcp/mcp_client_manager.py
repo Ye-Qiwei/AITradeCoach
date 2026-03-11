@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
+import shutil
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from ai_trading_coach.config import MCPServerDefinition, Settings
@@ -129,9 +132,10 @@ class MCPClientManager:
                         raise MCPConfigurationError(
                             f"Server '{server.server_id}' transport=stdio requires command."
                         )
+                    command, args = _resolve_stdio_command(server)
                     params = StdioServerParameters(
-                        command=server.command,
-                        args=server.args,
+                        command=command,
+                        args=args,
                         env=server.env or None,
                     )
                     async with stdio_client(params) as (read_stream, write_stream):
@@ -199,6 +203,36 @@ def tool_payload_hash(payload: dict[str, Any]) -> str:
     import hashlib
 
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _resolve_stdio_command(server: MCPServerDefinition) -> tuple[str, list[str]]:
+    command = (server.command or "").strip()
+    args = list(server.args)
+    if command != "uv" or shutil.which("uv") is not None:
+        return command, args
+
+    parsed = _parse_uv_run_server_args(args)
+    if parsed is None:
+        raise MCPConfigurationError(
+            "MCP server command is 'uv' but uv is not installed and args cannot be translated. "
+            "Use python to launch the server directly or install uv."
+        )
+
+    server_script, workdir = parsed
+    script_path = server_script if workdir is None else str((workdir / server_script).resolve())
+    python = shutil.which("python3") or shutil.which("python") or "python3"
+    return python, [script_path]
+
+
+def _parse_uv_run_server_args(args: list[str]) -> tuple[str, Path | None] | None:
+    workdir: Path | None = None
+    remaining = list(args)
+    if len(remaining) >= 2 and remaining[0] == "--directory":
+        workdir = Path(remaining[1])
+        remaining = remaining[2:]
+    if len(remaining) == 2 and remaining[0] == "run" and remaining[1].endswith('.py'):
+        return remaining[1], workdir
+    return None
 
 
 def _prepare_tool_arguments(
@@ -296,12 +330,50 @@ def _first_ticker(arguments: dict[str, Any]) -> str:
     if query_ticker:
         return query_ticker.upper()
 
+    query_tickers = query.get("tickers")
+    if isinstance(query_tickers, list):
+        for item in query_tickers:
+            if isinstance(item, str) and item.strip():
+                return item.strip().upper()
+
     tickers = arguments.get("tickers")
     if isinstance(tickers, list):
         for item in tickers:
             if isinstance(item, str) and item.strip():
                 return item.strip().upper()
+
+    candidates = [
+        _extract_ticker_from_text(str(arguments.get("objective", ""))),
+        _extract_ticker_from_text(_build_search_query(arguments)),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
     return ""
+
+
+def _extract_ticker_from_text(text: str) -> str:
+    if not text:
+        return ""
+    # Accept common ticker forms: TSLA, BRK.B, 0700.HK, $AAPL.
+    pattern = re.compile(r"\$?[A-Za-z0-9]{1,6}(?:[.-][A-Za-z0-9]{1,4})?")
+    for match in pattern.finditer(text):
+        raw = match.group(0)
+        candidate = raw.lstrip("$").upper()
+        if _looks_like_ticker(candidate, raw):
+            return candidate
+    return ""
+
+
+def _looks_like_ticker(value: str, raw: str) -> bool:
+    if not value:
+        return False
+    has_marker = raw.startswith("$") or any(ch.isdigit() for ch in raw) or "." in raw or "-" in raw
+    if has_marker:
+        return True
+    if raw.isupper() and raw.isalpha() and 1 <= len(raw) <= 5:
+        return True
+    return False
 
 
 def _build_search_query(arguments: dict[str, Any]) -> str:

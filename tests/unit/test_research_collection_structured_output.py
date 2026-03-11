@@ -7,9 +7,14 @@ from langchain.agents.structured_output import ToolStrategy
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.enums import TriggerType
+from ai_trading_coach.domain.llm_output_adapters import research_agent_contract_to_domain
 from ai_trading_coach.domain.llm_output_contracts import ResearchAgentFinalContract
 from ai_trading_coach.domain.models import ReviewRunRequest
-from ai_trading_coach.orchestrator.langgraph_nodes import LangGraphNodeRuntime, _parse_final_contract
+from ai_trading_coach.orchestrator.langgraph_nodes import (
+    LangGraphNodeRuntime,
+    _normalize_research_output_evidence_ids,
+    _parse_final_contract,
+)
 
 
 class _J:
@@ -161,3 +166,36 @@ def test_research_agent_v2_prompt_contract_alignment() -> None:
     assert "support_signal" in prompt_text
     assert "sufficiency_reason" in prompt_text
     assert "Do not output" in prompt_text
+
+
+def test_normalize_research_output_evidence_ids_maps_source_uris() -> None:
+    class _Source:
+        def __init__(self, uri: str) -> None:
+            self.uri = uri
+
+    class _Item:
+        def __init__(self, item_id: str, uri: str) -> None:
+            self.item_id = item_id
+            self.sources = [_Source(uri)]
+
+    contract = ResearchAgentFinalContract.model_validate(
+        {
+            "judgement_evidence": [
+                {
+                    "judgement_id": "j1",
+                    "evidence_item_ids": ["https://example.com/report", "ev_1"],
+                    "support_signal": "support",
+                    "sufficiency_reason": "directly matched",
+                }
+            ],
+            "stop_reason": "done",
+        }
+    )
+    research_output = research_agent_contract_to_domain(contract, run_id="r1")
+
+    _normalize_research_output_evidence_ids(
+        research_output,
+        all_items=[_Item("ev_1", "https://example.com/report")],
+    )
+
+    assert research_output.judgement_evidence[0].evidence_item_ids == ["ev_1"]

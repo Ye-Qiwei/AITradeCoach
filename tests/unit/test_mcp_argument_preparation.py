@@ -50,6 +50,30 @@ def test_prepare_tool_arguments_for_yfinance_news() -> None:
     assert prepared == {"ticker": "NVDA"}
 
 
+def test_prepare_tool_arguments_for_yfinance_news_extracts_ticker_from_objective() -> None:
+    manager = _manager()
+
+    prepared = manager.prepare_tool_arguments(
+        server_id="yfinance",
+        tool_name="get_yahoo_finance_news",
+        arguments={"objective": "Check latest sentiment impact for TSLA before CPI"},
+    )
+
+    assert prepared == {"ticker": "TSLA"}
+
+
+def test_prepare_tool_arguments_for_yfinance_news_extracts_hk_ticker() -> None:
+    manager = _manager()
+
+    prepared = manager.prepare_tool_arguments(
+        server_id="yfinance",
+        tool_name="get_yahoo_finance_news",
+        arguments={"objective": "Assess upside risks for 0700.HK around earnings"},
+    )
+
+    assert prepared == {"ticker": "0700.HK"}
+
+
 def test_prepare_tool_arguments_for_rss_search() -> None:
     manager = _manager()
 

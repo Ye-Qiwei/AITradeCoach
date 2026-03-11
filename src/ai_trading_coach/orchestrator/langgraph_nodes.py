@@ -87,6 +87,31 @@ def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
         ) from exc
 
 
+def _normalize_research_output_evidence_ids(
+    research_output: ResearchOutput,
+    *,
+    all_items: list[Any],
+) -> None:
+    alias_to_item_id: dict[str, str] = {}
+    for item in all_items:
+        item_id = getattr(item, "item_id", "")
+        if not item_id:
+            continue
+        alias_to_item_id[item_id] = item_id
+        for source in getattr(item, "sources", []):
+            uri = getattr(source, "uri", None)
+            if isinstance(uri, str) and uri.strip():
+                alias_to_item_id[uri.strip()] = item_id
+
+    for judgement in research_output.judgement_evidence:
+        normalized: list[str] = []
+        for raw_id in judgement.evidence_item_ids:
+            mapped = alias_to_item_id.get(raw_id, raw_id)
+            if mapped not in normalized:
+                normalized.append(mapped)
+        judgement.evidence_item_ids = normalized
+
+
 @dataclass
 class LangGraphNodeRuntime:
     parser_agent: CombinedParserAgent
@@ -217,6 +242,7 @@ class LangGraphNodeRuntime:
             *evidence_packet.analog_evidence,
             *evidence_packet.macro_evidence,
         ]
+        _normalize_research_output_evidence_ids(research_output, all_items=all_items)
         research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
         collected_info = list(state.get("collected_info", []))
         collected_info.extend(
