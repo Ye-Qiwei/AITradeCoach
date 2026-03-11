@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage
+from pydantic import ValidationError
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.agent_models import JudgeVerdict
@@ -53,13 +55,36 @@ def _extract_agent_messages(raw_messages: list[Any]) -> list[str]:
 
 
 def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
+    expected_keys = sorted(ResearchAgentFinalContract.model_fields.keys())
     structured = result.get("structured_response")
     if structured is not None:
         return ResearchAgentFinalContract.model_validate(structured)
+
     messages = _extract_agent_messages(result.get("messages", []))
     if not messages:
         raise ValueError("Research agent produced no output messages.")
-    return ResearchAgentFinalContract.model_validate(json.loads(messages[-1]))
+
+    raw_tail = messages[-1]
+    snippet = raw_tail if len(raw_tail) <= 400 else f"{raw_tail[:400]}...(truncated)"
+    json_parse_ok = False
+    actual_keys: list[str] = []
+    try:
+        parsed = json.loads(raw_tail)
+        json_parse_ok = True
+        if isinstance(parsed, dict):
+            actual_keys = sorted(parsed.keys())
+        else:
+            actual_keys = [f"<non-object:{type(parsed).__name__}>"]
+        return ResearchAgentFinalContract.model_validate(parsed)
+    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+        raise ValueError(
+            "Failed to parse research final contract. "
+            f"structured_response_present={structured is not None}; "
+            f"json_parse_ok={json_parse_ok}; "
+            f"expected_top_level_keys={expected_keys}; "
+            f"actual_top_level_keys={actual_keys}; "
+            f"last_message_snippet={snippet}"
+        ) from exc
 
 
 @dataclass
@@ -145,9 +170,19 @@ class LangGraphNodeRuntime:
         runtime = MCPToolRuntime()
         tools = build_langchain_mcp_tools(mcp_manager=self.mcp_manager, runtime=runtime)
         prompt = self.prompt_manager.load_active("research_agent")
-        agent = create_agent(model=self.chat_model, tools=tools, system_prompt=prompt.system_prompt)
+        agent = create_agent(
+            model=self.chat_model,
+            tools=tools,
+            system_prompt=prompt.system_prompt,
+            response_format=ToolStrategy(ResearchAgentFinalContract),
+        )
         payload = {
-            "task": "Collect evidence for requirements and output final strict JSON.",
+            "task": (
+                "Collect evidence to evaluate each judgement as the final delivery unit. "
+                "Treat info_requirements only as intermediate research clues. "
+                "Final output must match ResearchAgentFinalContract exactly, must cover each judgement_id exactly once, "
+                "and must not output findings or summary."
+            ),
             "analysis_framework": state.get("analysis_framework", ""),
             "analysis_directions": state.get("analysis_directions", []),
             "info_requirements": state.get("info_requirements", []),
