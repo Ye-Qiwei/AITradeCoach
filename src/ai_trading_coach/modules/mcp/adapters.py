@@ -24,16 +24,29 @@ def normalize_tool_output(
     rows = _extract_rows(raw_result)
     out: list[EvidenceItem] = []
     for idx, row in enumerate(rows):
+        uri = _lookup_text(row, "uri", "url", "link")
+        title = _lookup_text(row, "title", "headline", "name")
+        published_at = _to_datetime(
+            _lookup_value(row, "published_at", "date", "datetime", "timestamp", "Date")
+        )
+        summary = _lookup_text(
+            row,
+            "summary",
+            "snippet",
+            "text",
+            "title",
+            "headline",
+            "description",
+        )
         source = SourceAttribution(
             source_id=f"src_{server_id}_{tool_name}_{subtask.subtask_id}_{idx}",
             source_type=subtask.tool_category,
             provider=server_id,
-            uri=_to_text(row.get("uri") or row.get("url")),
-            title=_to_text(row.get("title") or row.get("headline")),
-            published_at=_to_datetime(row.get("published_at") or row.get("date") or row.get("datetime")),
+            uri=uri,
+            title=title,
+            published_at=published_at,
         )
         data = _safe_data(row)
-        summary = _to_text(row.get("summary") or row.get("snippet") or row.get("text") or row.get("title"))
         if not summary:
             summary = f"{subtask.evidence_type.value} evidence from {server_id}:{tool_name}"
         out.append(
@@ -43,7 +56,17 @@ def normalize_tool_output(
                 summary=summary[:400],
                 data=data,
                 related_tickers=_extract_tickers(row=row, subtask=subtask),
-                event_time=_to_datetime(row.get("event_time") or row.get("published_at") or row.get("date")),
+                event_time=_to_datetime(
+                    _lookup_value(
+                        row,
+                        "event_time",
+                        "published_at",
+                        "date",
+                        "datetime",
+                        "timestamp",
+                        "Date",
+                    )
+                ),
                 sources=[source],
             )
         )
@@ -109,22 +132,24 @@ def _safe_data(row: dict[str, Any]) -> dict[str, Any]:
         "form",
         "accession_no",
         "company",
+        "adj close",
     }
     out: dict[str, Any] = {}
     for key, value in row.items():
-        if key not in allowed:
+        canonical_key = _canonical_key(key)
+        if canonical_key not in allowed:
             continue
         if isinstance(value, (str, int, float, bool)) or value is None:
-            out[key] = value
+            out[canonical_key.replace(" ", "_")] = value
         elif isinstance(value, list) and all(isinstance(item, (str, int, float, bool)) for item in value):
-            out[key] = value[:20]
+            out[canonical_key.replace(" ", "_")] = value[:20]
     return out
 
 
 def _extract_tickers(row: dict[str, Any], subtask: PlanSubTask) -> list[str]:
     candidates: list[str] = []
     for key in ("ticker", "symbol", "tickers"):
-        value = row.get(key)
+        value = _lookup_value(row, key)
         if isinstance(value, str) and value.strip():
             candidates.append(value.strip().upper())
         elif isinstance(value, list):
@@ -183,3 +208,22 @@ def _try_json(text: str) -> Any:
     except json.JSONDecodeError:
         return None
 
+
+def _lookup_value(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in row:
+            return row[key]
+    lowered = {_canonical_key(raw_key): value for raw_key, value in row.items()}
+    for key in keys:
+        candidate = lowered.get(_canonical_key(key))
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def _lookup_text(row: dict[str, Any], *keys: str) -> str:
+    return _to_text(_lookup_value(row, *keys))
+
+
+def _canonical_key(key: Any) -> str:
+    return str(key).strip().lower().replace("_", " ")

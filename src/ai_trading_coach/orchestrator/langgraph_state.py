@@ -24,4 +24,11 @@ class OrchestratorGraphState(TypedDict, total=False):
     model_calls: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
     react_steps: list[dict[str, Any]]
+    analysis_framework: str
+    analysis_directions: list[str]
+    info_requirements: list[dict[str, Any]]
+    collected_info: list[dict[str, Any]]
+    is_sufficient: bool
+    verify_suggestions: list[str]
+    research_retry_count: int
     final_result: TaskResult

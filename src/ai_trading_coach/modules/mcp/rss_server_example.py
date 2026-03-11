@@ -1,7 +1,7 @@
 """Example lightweight MCP RSS server (optional local tool server).
 
 Run (example):
-    python -m ai_trading_coach.modules.mcp.rss_server_example
+    python3 -m ai_trading_coach.modules.mcp.rss_server_example
 """
 
 from __future__ import annotations
@@ -68,4 +68,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -31,18 +31,12 @@ mcp:
   timeout_seconds: 12
   retries: 2
   servers:
-    - id: search
-      endpoint: http://localhost:8101
-    - id: price
-      endpoint: http://localhost:8102
+    - id: yfinance
+      endpoint: stdio via uv --directory /ABS/PATH/yahoo-finance-mcp run server.py
+    - id: rss_search
+      endpoint: stdio via python3 -m ai_trading_coach.modules.mcp.rss_server_example
     - id: filing
       endpoint: http://localhost:8103
-    - id: news
-      endpoint: http://localhost:8104
-    - id: sentiment
-      endpoint: http://localhost:8105
-    - id: discussion
-      endpoint: http://localhost:8106
     - id: macro
       endpoint: http://localhost:8107
 

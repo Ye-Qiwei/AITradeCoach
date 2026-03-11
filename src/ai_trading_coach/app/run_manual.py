@@ -2,29 +2,137 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import typer
 
 from ai_trading_coach.app.factory import build_pipeline_orchestrator
 from ai_trading_coach.config import get_settings
-from ai_trading_coach.domain.enums import TriggerType
+from ai_trading_coach.domain.enums import EvidenceType, TriggerType
 from ai_trading_coach.domain.models import ReviewRunRequest
+from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.observability.tracing import save_run_trace
 
 app = typer.Typer(add_completion=False)
+
+_MCP_RESEARCH_SPECS: tuple[tuple[str, EvidenceType], ...] = (
+    ("get_price_history", EvidenceType.PRICE_PATH),
+    ("search_news", EvidenceType.NEWS),
+    ("list_filings", EvidenceType.FILING),
+    ("get_macro_series", EvidenceType.MACRO),
+)
+
+
+def _environment_report() -> dict[str, Any]:
+    settings = get_settings()
+    warnings: list[str] = []
+    errors: list[str] = []
+    llm: dict[str, Any] = {"ok": False, "provider": "", "model": "", "error": None}
+    exposed_tools: list[str] = []
+
+    try:
+        provider = settings.llm_provider()
+        settings.llm_api_key()
+        llm = {
+            "ok": True,
+            "provider": provider,
+            "model": settings.selected_llm_model(),
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        llm["error"] = str(exc)
+        errors.append(str(exc))
+
+    mcp: dict[str, Any] = {
+        "ok": False,
+        "server_count": 0,
+        "configured_tools": [],
+        "skipped_tools": [],
+        "error": None,
+    }
+    configured_mcp_tools: list[dict[str, str]] = []
+    try:
+        manager = MCPClientManager(settings=settings)
+        skipped_tools: list[dict[str, str]] = []
+        for action_name, evidence_type in _MCP_RESEARCH_SPECS:
+            ref, reason = manager.tool_configuration_status(evidence_type)
+            if ref is None:
+                skipped_tools.append(
+                    {"action": action_name, "reason": reason or "not configured"}
+                )
+                continue
+            configured_mcp_tools.append(
+                {
+                    "action": action_name,
+                    "server_id": ref.server_id,
+                    "tool_name": ref.tool_name,
+                }
+            )
+        mcp = {
+            "ok": True,
+            "server_count": len(manager.server_map),
+            "configured_tools": configured_mcp_tools,
+            "skipped_tools": skipped_tools,
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        mcp["error"] = str(exc)
+        errors.append(str(exc))
+
+    web_tools = settings.web_tool_status()
+    enabled_web_tools = [name for name, enabled in web_tools.items() if enabled]
+    exposed_tools.extend(item["action"] for item in configured_mcp_tools)
+    exposed_tools.extend(enabled_web_tools)
+    if not configured_mcp_tools and not enabled_web_tools:
+        warnings.append(
+            "No research tools are configured. Add MCP_SERVERS or enable "
+            "BRAVE_API_KEY / FIRECRAWL_API_KEY / AGENT_BROWSER_ENDPOINT."
+        )
+    if not enabled_web_tools:
+        warnings.append(
+            "General web research tools are disabled. Dynamic-page and broad web lookup fallbacks will be unavailable."
+        )
+
+    status = "error" if errors else "warn" if warnings else "ok"
+    return {
+        "status": status,
+        "llm": llm,
+        "mcp": mcp,
+        "web_tools": web_tools,
+        "agent_tools": sorted(set(exposed_tools)),
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+
+def _ensure_research_tools_configured_or_raise() -> None:
+    report = _environment_report()
+    if report["errors"]:
+        raise typer.BadParameter(report["errors"][0])
+    if not report["mcp"]["configured_tools"] and not any(report["web_tools"].values()):
+        raise typer.BadParameter(
+            "No research tools are configured. Run "
+            "`python3 -m ai_trading_coach.app.run_manual doctor` and configure "
+            "MCP_SERVERS and/or BRAVE_API_KEY, FIRECRAWL_API_KEY, "
+            "AGENT_BROWSER_ENDPOINT."
+        )
 
 
 @app.command()
 def run(
     user_id: str = typer.Option("demo_user", help="User ID"),
-    log_file: str = typer.Option("examples/logs/daily_log_sample.md", help="Path to markdown log"),
+    log_file: str = typer.Option(
+        "examples/logs/daily_log_sample.md", help="Path to markdown log"
+    ),
     run_date: str = typer.Option(date.today().isoformat(), help="Run date YYYY-MM-DD"),
     dry_run: bool = typer.Option(True, help="Disable memory + report/trace writes"),
 ) -> None:
     settings = get_settings()
     settings.validate_llm_or_raise()
+    _ensure_research_tools_configured_or_raise()
     text = Path(log_file).read_text(encoding="utf-8")
     orchestrator = build_pipeline_orchestrator(settings)
 
@@ -44,6 +152,59 @@ def run(
     if not dry_run and result.trace is not None:
         save_run_trace(result.trace, settings.trace_output_dir)
     typer.echo(result.model_dump_json(indent=2))
+
+
+@app.command()
+def doctor(
+    as_json: bool = typer.Option(False, "--json", help="Output full report as JSON"),
+    strict: bool = typer.Option(
+        False, help="Exit with code 1 on warnings as well as errors"
+    ),
+) -> None:
+    report = _environment_report()
+    if as_json:
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(f"status: {report['status']}")
+        llm = report["llm"]
+        typer.echo(
+            f"llm: {'ok' if llm['ok'] else 'error'}"
+            f" provider={llm['provider'] or '-'}"
+            f" model={llm['model'] or '-'}"
+        )
+        if llm["error"]:
+            typer.echo(f"llm_error: {llm['error']}")
+
+        mcp = report["mcp"]
+        typer.echo(
+            f"mcp: {'ok' if mcp['ok'] else 'error'}"
+            f" servers={mcp['server_count']}"
+            f" configured_tools={len(mcp['configured_tools'])}"
+        )
+        for item in mcp["configured_tools"]:
+            typer.echo(
+                f"mcp_tool: {item['action']} -> {item['server_id']}:{item['tool_name']}"
+            )
+        for item in mcp["skipped_tools"]:
+            typer.echo(f"mcp_skipped: {item['action']} ({item['reason']})")
+        if mcp["error"]:
+            typer.echo(f"mcp_error: {mcp['error']}")
+
+        enabled = [name for name, on in report["web_tools"].items() if on]
+        disabled = [name for name, on in report["web_tools"].items() if not on]
+        typer.echo(f"web_tools_enabled: {', '.join(enabled) if enabled else '-'}")
+        typer.echo(f"web_tools_disabled: {', '.join(disabled) if disabled else '-'}")
+        typer.echo(
+            f"agent_tools: {', '.join(report['agent_tools']) if report['agent_tools'] else '-'}"
+        )
+
+        for warning in report["warnings"]:
+            typer.echo(f"warning: {warning}")
+        for error in report["errors"]:
+            typer.echo(f"error: {error}")
+
+    if report["errors"] or (strict and report["warnings"]):
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

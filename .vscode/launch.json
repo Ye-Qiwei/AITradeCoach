@@ -21,6 +21,7 @@
       "module": "ai_trading_coach.app.run_manual",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
+      "python": "/anaconda/envs/py312/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/src"
       },
@@ -30,8 +31,6 @@
         "examples/logs/daily_log_sample.md",
         "--run-date",
         "2026-03-07",
-        "--dry-run",
-        "true"
       ],
       "console": "integratedTerminal",
       "justMyCode": true

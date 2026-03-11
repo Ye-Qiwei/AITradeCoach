@@ -15,6 +15,7 @@ from ai_trading_coach.domain.agent_models import PlanSubTask
 from ai_trading_coach.domain.enums import EvidenceType
 from ai_trading_coach.domain.models import EvidenceItem, ToolCallTrace
 from ai_trading_coach.domain.react_models import ReActStep
+from ai_trading_coach.modules.agent.web_tools import build_general_web_tools
 from ai_trading_coach.modules.mcp.adapters import normalize_tool_output
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager, tool_payload_hash
 
@@ -39,12 +40,20 @@ class MCPToolRuntime:
 
 
 def build_langchain_mcp_tools(*, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> list[StructuredTool]:
-    return [
-        _build_tool("get_price_history", EvidenceType.PRICE_PATH, mcp_manager, runtime),
-        _build_tool("search_news", EvidenceType.NEWS, mcp_manager, runtime),
-        _build_tool("list_filings", EvidenceType.FILING, mcp_manager, runtime),
-        _build_tool("get_macro_series", EvidenceType.MACRO, mcp_manager, runtime),
-    ]
+    specs = (
+        ("get_price_history", EvidenceType.PRICE_PATH),
+        ("search_news", EvidenceType.NEWS),
+        ("list_filings", EvidenceType.FILING),
+        ("get_macro_series", EvidenceType.MACRO),
+    )
+    tools: list[StructuredTool] = []
+    for action_name, evidence_type in specs:
+        ref, _reason = mcp_manager.tool_configuration_status(evidence_type)
+        if ref is None:
+            continue
+        tools.append(_build_tool(action_name, evidence_type, mcp_manager, runtime))
+    tools.extend(build_general_web_tools(settings=mcp_manager.settings))
+    return tools
 
 
 def _build_tool(action_name: str, evidence_type: EvidenceType, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> StructuredTool:

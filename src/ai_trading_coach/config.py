@@ -55,7 +55,7 @@ class PathSettings(BaseModel):
 
 
 DEFAULT_EVIDENCE_TOOL_MAP: dict[str, str] = {
-    EvidenceType.PRICE_PATH.value: "yahoo_finance:price_history",
+    EvidenceType.PRICE_PATH.value: "yfinance:get_historical_stock_prices",
     EvidenceType.NEWS.value: "rss_search:rss_search",
     EvidenceType.FILING.value: "sec_edgar:list_filings",
     EvidenceType.MACRO.value: "fred:series_observations",
@@ -110,6 +110,16 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(
         default=20.0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "ATC_LLM_TIMEOUT_SECONDS"),
+    )
+    brave_api_key: str = Field(
+        default="", validation_alias=AliasChoices("BRAVE_API_KEY", "ATC_BRAVE_API_KEY")
+    )
+    firecrawl_api_key: str = Field(
+        default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "ATC_FIRECRAWL_API_KEY")
+    )
+    agent_browser_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices("AGENT_BROWSER_ENDPOINT", "ATC_AGENT_BROWSER_ENDPOINT"),
     )
 
     mcp_servers_json: str = Field(
@@ -294,6 +304,13 @@ class Settings(BaseSettings):
             ModuleName.EVALUATOR.value: self.model_for_module(ModuleName.EVALUATOR),
             ModuleName.REPORT_GENERATOR.value: self.model_for_module(ModuleName.REPORT_GENERATOR),
             ModuleName.PROMPTOPS.value: self.model_for_module(ModuleName.PROMPTOPS),
+        }
+
+    def web_tool_status(self) -> dict[str, bool]:
+        return {
+            "brave_search": bool(self.brave_api_key.strip()),
+            "firecrawl_extract": bool(self.firecrawl_api_key.strip()),
+            "playwright_fetch": bool(self.agent_browser_endpoint.strip()),
         }
 
 

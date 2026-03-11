@@ -22,6 +22,13 @@ class TradeActionContract(StrictLLMContractModel):
     reason: str
 
 
+class AtomicJudgementContract(StrictLLMContractModel):
+    id: str
+    core_thesis: str
+    evaluation_timeframe: EvaluationWindowLiteral
+    dependencies: list[str]
+
+
 class JudgementItemContract(StrictLLMContractModel):
     category: Literal[
         "market_view",
@@ -41,6 +48,7 @@ class JudgementItemContract(StrictLLMContractModel):
     related_non_actions: list[str]
     estimated_horizon: str
     proposed_evaluation_window: EvaluationWindowLiteral
+    atomic_judgements: list[AtomicJudgementContract]
 
 
 class ParserOutputContract(StrictLLMContractModel):

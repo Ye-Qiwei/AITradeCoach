@@ -25,6 +25,19 @@ class TradeAction(ExtensibleModel):
     reason: str | None = None
 
 
+class AtomicJudgement(ExtensibleModel):
+    id: str
+    core_thesis: str
+    evaluation_timeframe: str = "1 week"
+    dependencies: list[str] = Field(default_factory=list)
+
+    @field_validator("evaluation_timeframe")
+    @classmethod
+    def validate_timeframe(cls, value: str) -> str:
+        if value not in ALLOWED_EVALUATION_WINDOWS:
+            raise ValueError(f"evaluation timeframe must be one of {ALLOWED_EVALUATION_WINDOWS}")
+        return value
+
 class JudgementItem(ExtensibleModel):
     judgement_id: str
     category: Literal[
@@ -45,6 +58,7 @@ class JudgementItem(ExtensibleModel):
     related_non_actions: list[str] = Field(default_factory=list)
     estimated_horizon: str | None = None
     proposed_evaluation_window: str = "1 week"
+    atomic_judgements: list[AtomicJudgement] = Field(default_factory=list)
 
     @field_validator("proposed_evaluation_window")
     @classmethod
@@ -72,6 +86,9 @@ class ParserOutput(ExtensibleModel):
             *self.opportunity_judgements,
             *self.non_action_judgements,
         ]
+
+
+
 
 
 class JudgementEvidence(ExtensibleModel):

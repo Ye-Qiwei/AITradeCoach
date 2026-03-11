@@ -1,7 +1,7 @@
 {
   "active_versions": {
-    "log_understanding": "v2",
-    "research_agent": "v1",
+    "log_understanding": "v3",
+    "research_agent": "v2",
     "report_generation": "v2",
     "report_judging": "v1",
     "cognition_extraction": "v1",

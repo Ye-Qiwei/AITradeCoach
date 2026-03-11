@@ -82,27 +82,92 @@ class LangGraphNodeRuntime:
         model_calls.append(parse_trace.model_dump(mode="json"))
         return {"parse_result": parse_result, "model_calls": model_calls}
 
+
     def react_research(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
+        rolling = dict(state)
+        rolling.update(self.plan_research_node(rolling))
+        while True:
+            rolling.update(self.execute_collection_node(rolling))
+            rolling.update(self.verify_information_node(rolling))
+            if self.route_after_verify(rolling) == "research_done":
+                break
+        return {
+            "agent_messages": rolling.get("agent_messages", []),
+            "evidence_packet": rolling["evidence_packet"],
+            "tool_calls": rolling.get("tool_calls", []),
+            "react_steps": rolling.get("react_steps", []),
+            "research_output": rolling["research_output"],
+            "analysis_framework": rolling.get("analysis_framework", ""),
+            "analysis_directions": rolling.get("analysis_directions", []),
+            "info_requirements": rolling.get("info_requirements", []),
+            "collected_info": rolling.get("collected_info", []),
+            "is_sufficient": rolling.get("is_sufficient", True),
+            "verify_suggestions": rolling.get("verify_suggestions", []),
+            "research_retry_count": rolling.get("research_retry_count", 0),
+        }
+
+    def plan_research_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
+        parse_result = state["parse_result"]
+        atomic_items: list[dict[str, Any]] = []
+        for judgement in parse_result.all_judgements():
+            for atomic in judgement.atomic_judgements:
+                atomic_items.append(
+                    {
+                        "judgement_id": judgement.judgement_id,
+                        "atomic_id": atomic.id,
+                        "core_thesis": atomic.core_thesis,
+                        "evaluation_timeframe": atomic.evaluation_timeframe,
+                        "dependencies": atomic.dependencies,
+                    }
+                )
+        analysis_directions = [
+            "market_pricing_and_price_path",
+            "fundamental_or_macro_driver_validation",
+            "event_news_and_policy_signal_crosscheck",
+        ]
+        info_requirements = [
+            {"requirement_id": f"req_{idx}", "judgement_id": item["judgement_id"], "atomic_id": item["atomic_id"], "need": item["core_thesis"]}
+            for idx, item in enumerate(atomic_items, start=1)
+        ]
+        return {
+            "analysis_framework": "Hypothesis decomposition -> evidence collection -> sufficiency verification",
+            "analysis_directions": analysis_directions,
+            "info_requirements": info_requirements,
+            "collected_info": list(state.get("collected_info", [])),
+            "research_retry_count": int(state.get("research_retry_count", 0)),
+            "is_sufficient": False,
+            "verify_suggestions": list(state.get("verify_suggestions", [])),
+        }
+
+    def execute_collection_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         req = state["request"]
         parse_result = state["parse_result"]
         runtime = MCPToolRuntime()
         tools = build_langchain_mcp_tools(mcp_manager=self.mcp_manager, runtime=runtime)
         prompt = self.prompt_manager.load_active("research_agent")
         agent = create_agent(model=self.chat_model, tools=tools, system_prompt=prompt.system_prompt)
-        judgements = [
-            {
-                "judgement_id": j.judgement_id,
-                "category": j.category,
-                "target_asset_or_topic": j.target_asset_or_topic,
-                "thesis": j.thesis,
-                "evidence_from_user_log": j.evidence_from_user_log,
-                "implicitness": j.implicitness,
-                "proposed_evaluation_window": j.proposed_evaluation_window,
-            }
-            for j in parse_result.all_judgements()
-        ]
-        result = agent.invoke({"messages": [HumanMessage(content=json.dumps({"task": "Research all judgements and output final strict JSON.", "judgements": judgements}, ensure_ascii=False))]})
-
+        payload = {
+            "task": "Collect evidence for requirements and output final strict JSON.",
+            "analysis_framework": state.get("analysis_framework", ""),
+            "analysis_directions": state.get("analysis_directions", []),
+            "info_requirements": state.get("info_requirements", []),
+            "collected_info": state.get("collected_info", []),
+            "verify_suggestions": state.get("verify_suggestions", []),
+            "judgements": [
+                {
+                    "judgement_id": j.judgement_id,
+                    "category": j.category,
+                    "target_asset_or_topic": j.target_asset_or_topic,
+                    "thesis": j.thesis,
+                    "atomic_judgements": [a.model_dump(mode="json") for a in j.atomic_judgements],
+                    "evidence_from_user_log": j.evidence_from_user_log,
+                    "implicitness": j.implicitness,
+                    "proposed_evaluation_window": j.proposed_evaluation_window,
+                }
+                for j in parse_result.all_judgements()
+            ],
+        }
+        result = agent.invoke({"messages": [HumanMessage(content=json.dumps(payload, ensure_ascii=False))]})
         evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=runtime.evidence_items)
         final_contract = _parse_final_contract(result)
         synthesis_out = research_agent_contract_to_domain(final_contract, run_id=req.run_id)
@@ -118,13 +183,42 @@ class LangGraphNodeRuntime:
             *evidence_packet.macro_evidence,
         ]
         research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
+        collected_info = list(state.get("collected_info", []))
+        collected_info.extend(
+            [{"item_id": item.item_id, "summary": item.summary} for item in runtime.evidence_items]
+        )
         return {
             "agent_messages": _extract_agent_messages(result.get("messages", [])),
             "evidence_packet": evidence_packet,
             "tool_calls": [t.model_dump(mode="json") for t in runtime.tool_traces],
             "react_steps": [s.model_dump(mode="json") for s in runtime.react_steps],
             "research_output": research_output,
+            "collected_info": collected_info,
         }
+
+    def verify_information_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
+        required = state.get("info_requirements", [])
+        collected = state.get("collected_info", [])
+        retry_count = int(state.get("research_retry_count", 0)) + 1
+        sufficient = bool(collected) and len(collected) >= min(len(required), 3)
+        suggestions: list[str] = []
+        if not sufficient:
+            suggestions = [
+                "Broaden keyword set with synonyms and event-specific terms",
+                "Use brave_search first, then firecrawl_extract for full text",
+                "If static fetch is weak, switch to playwright_fetch for dynamic pages",
+            ]
+            if retry_count >= 3:
+                sufficient = True
+                suggestions.append("Max retry reached; proceed with uncertainty annotation.")
+        return {
+            "is_sufficient": sufficient,
+            "verify_suggestions": suggestions,
+            "research_retry_count": retry_count,
+        }
+
+    def route_after_verify(self, state: OrchestratorGraphState) -> str:
+        return "research_done" if state.get("is_sufficient", False) else "continue_collection"
 
     def build_report_context(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         context = self.context_builder.for_reporter(parse_result=state["parse_result"], research_output=state["research_output"], evidence_packet=state["evidence_packet"])

@@ -16,6 +16,7 @@ class _FakeJudgement:
     evidence_from_user_log = ["note"]
     implicitness = "explicit"
     proposed_evaluation_window = "1 week"
+    atomic_judgements = []
 
 
 class _FakeParseResult:

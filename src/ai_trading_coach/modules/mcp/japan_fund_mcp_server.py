@@ -1,7 +1,7 @@
 """MCP server for collecting Japanese mutual fund information.
 
 Run:
-    python -m ai_trading_coach.modules.mcp.japan_fund_mcp_server
+    python3 -m ai_trading_coach.modules.mcp.japan_fund_mcp_server
 """
 
 from __future__ import annotations

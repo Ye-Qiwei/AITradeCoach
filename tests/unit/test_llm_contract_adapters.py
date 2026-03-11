@@ -38,6 +38,12 @@ def test_parser_adapter_generates_ids_and_clears_invalid_related_actions() -> No
                 related_non_actions=[],
                 estimated_horizon="",
                 proposed_evaluation_window="1 week",
+                atomic_judgements=[{
+                    "id": "a1",
+                    "core_thesis": "SPX up",
+                    "evaluation_timeframe": "1 week",
+                    "dependencies": [],
+                }],
             )
         ],
         implicit_judgements=[],

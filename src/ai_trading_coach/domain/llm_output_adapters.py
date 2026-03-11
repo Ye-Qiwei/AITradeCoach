@@ -5,6 +5,7 @@ from __future__ import annotations
 from ai_trading_coach.domain.agent_models import JudgeVerdict, ReporterOutput
 from ai_trading_coach.domain.id_generation import make_action_id, make_judgement_id, make_parse_id, make_research_id
 from ai_trading_coach.domain.judgement_models import (
+    AtomicJudgement,
     DailyJudgementFeedback,
     JudgementEvidence,
     JudgementItem,
@@ -13,6 +14,7 @@ from ai_trading_coach.domain.judgement_models import (
     TradeAction,
 )
 from ai_trading_coach.domain.llm_output_contracts import (
+    AtomicJudgementContract,
     DailyJudgementFeedbackContract,
     JudgeVerdictContract,
     JudgementEvidenceContract,
@@ -44,6 +46,15 @@ def _valid_related_action_ids(candidates: list[str], valid_ids: set[str]) -> lis
     return [item for item in candidates if item in valid_ids]
 
 
+def atomic_judgement_contract_to_domain(contract: AtomicJudgementContract) -> AtomicJudgement:
+    return AtomicJudgement(
+        id=contract.id,
+        core_thesis=contract.core_thesis,
+        evaluation_timeframe=contract.evaluation_timeframe,
+        dependencies=contract.dependencies,
+    )
+
+
 def judgement_item_contract_to_domain(contract: JudgementItemContract, *, judgement_id: str, valid_action_ids: set[str]) -> JudgementItem:
     return JudgementItem(
         judgement_id=judgement_id,
@@ -57,6 +68,7 @@ def judgement_item_contract_to_domain(contract: JudgementItemContract, *, judgem
         related_non_actions=contract.related_non_actions,
         estimated_horizon=_empty_to_none(contract.estimated_horizon),
         proposed_evaluation_window=contract.proposed_evaluation_window,
+        atomic_judgements=[atomic_judgement_contract_to_domain(item) for item in contract.atomic_judgements],
     )
 
 
