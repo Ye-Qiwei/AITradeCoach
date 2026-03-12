@@ -1,3 +1,10 @@
+"""Local MCP wrapper for Yahoo Japan fund history scraping.
+
+This module remains as the stdio MCP bridge for environments that still prefer
+MCP transport, while runtime defaults expose the same capability directly as a
+local Python tool (`yahoo_japan_fund_history`).
+"""
+
 from __future__ import annotations
 
 import json

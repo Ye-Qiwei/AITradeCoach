@@ -217,11 +217,23 @@ class MCPClientManager:
         for tool in enabled_curated_tools():
             if tool.implementation_kind != "external_mcp":
                 continue
-            server_id, tool_name = self._split_tool_ref(tool.implementation_ref)
-            key = f"{server_id}:{tool_name}"
-            if key in self.allowlist:
-                mapping[tool.canonical_name] = MCPToolRef(server_id=server_id, tool_name=tool_name)
+            if tool.evidence_type is None:
+                continue
+            ref, _ = self.tool_configuration_status(tool.evidence_type)
+            if ref is not None:
+                mapping[tool.canonical_name] = ref
         return mapping
+
+    def curated_tool_status(self, canonical_name: str) -> tuple[MCPToolRef | None, str | None]:
+        for tool in enabled_curated_tools():
+            if tool.canonical_name != canonical_name:
+                continue
+            if tool.implementation_kind != "external_mcp":
+                return None, "not external_mcp"
+            if tool.evidence_type is None:
+                return None, "missing evidence_type"
+            return self.tool_configuration_status(tool.evidence_type)
+        return None, f"unknown curated tool: {canonical_name}"
 
     def discovered_tools(self) -> list[RawMCPToolMetadata]:
         tools: list[RawMCPToolMetadata] = []

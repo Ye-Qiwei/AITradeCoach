@@ -18,14 +18,14 @@ class CuratedToolDefinition:
     output_summary_style: str
     tags: tuple[str, ...]
     implementation_kind: Literal["local_python", "external_mcp"]
-    implementation_ref: str
+    implementation_ref: str = ""
     evidence_type: EvidenceType | None = None
     enabled: bool = True
 
 
 CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
     CuratedToolDefinition(
-        canonical_name="yahoo_finance_price_history",
+        canonical_name="get_price_history",
         description="Get ticker historical prices and summarize date range/latest close.",
         when_to_use="Need daily/weekly price path evidence for a ticker.",
         when_not_to_use="Need Japanese fund NAV history; use yahoo_japan_fund_history instead.",
@@ -33,11 +33,10 @@ CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
         output_summary_style="timeseries_summary",
         tags=("price", "timeseries", "yfinance"),
         implementation_kind="external_mcp",
-        implementation_ref="yfinance:yfinance_get_price_history",
         evidence_type=EvidenceType.PRICE_PATH,
     ),
     CuratedToolDefinition(
-        canonical_name="yahoo_finance_ticker_news",
+        canonical_name="search_news",
         description="Get latest Yahoo Finance ticker news.",
         when_to_use="Need recent company/market news for ticker thesis validation.",
         when_not_to_use="Need broad web search outside finance context.",
@@ -45,7 +44,6 @@ CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
         output_summary_style="news_summary",
         tags=("news", "yfinance"),
         implementation_kind="external_mcp",
-        implementation_ref="yfinance:yfinance_get_ticker_news",
         evidence_type=EvidenceType.NEWS,
     ),
     CuratedToolDefinition(

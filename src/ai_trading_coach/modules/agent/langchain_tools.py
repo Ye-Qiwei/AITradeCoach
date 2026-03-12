@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ai_trading_coach.domain.agent_models import PlanSubTask
 from ai_trading_coach.domain.models import EvidenceItem, ToolCallTrace
 from ai_trading_coach.domain.react_models import ReActStep
-from ai_trading_coach.modules.agent.curated_tools import CuratedToolDefinition, enabled_curated_tools
+from ai_trading_coach.modules.agent.curated_tools import CuratedToolDefinition
 from ai_trading_coach.modules.data_sources.yahoo_japan_fund_history import get_fund_history_by_code, get_fund_history_by_url
 from ai_trading_coach.modules.mcp.adapters import normalize_tool_output
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager, MCPToolRef, tool_payload_hash
@@ -43,16 +43,14 @@ class MCPToolRuntime:
 
 
 def build_agent_tools(*, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> list[StructuredTool]:
-    tools: list[StructuredTool] = []
-    for spec in enabled_curated_tools():
-        if spec.implementation_kind == "external_mcp":
-            tool_ref = mcp_manager.curated_tool_mapping().get(spec.canonical_name)
-            if tool_ref is None:
-                continue
-            tools.append(_build_external_tool(spec, tool_ref, mcp_manager, runtime))
-            continue
-        tools.append(_build_local_tool(spec, runtime))
-    return tools
+    """Backward-compatible wrapper around unified research tool builder."""
+    from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
+
+    return build_runtime_research_tools(
+        settings=mcp_manager.settings,
+        mcp_manager=mcp_manager,
+        runtime=runtime,
+    )
 
 
 def _build_external_tool(spec: CuratedToolDefinition, tool_ref: MCPToolRef, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> StructuredTool:
@@ -153,4 +151,9 @@ def _build_observation(name: str, items: list[EvidenceItem], err: str | None) ->
     return f"tool={name}; items={len(items)}; evidence_item_ids={[i.item_id for i in items][:5]}"
 
 
-__all__ = ["MCPToolRuntime", "build_agent_tools"]
+__all__ = [
+    "MCPToolRuntime",
+    "build_agent_tools",
+    "_build_external_tool",
+    "_build_local_tool",
+]

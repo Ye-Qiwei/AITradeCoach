@@ -52,7 +52,7 @@
    - `LLM_PROVIDER=openai` + `OPENAI_API_KEY=...`
    - 或 `LLM_PROVIDER=gemini` + `GEMINI_API_KEY=...`
 5. 至少配置一类 research 工具：
-   - 方案 A：配置 `BRAVE_API_KEY` / `FIRECRAWL_API_KEY` / `AGENT_BROWSER_ENDPOINT`
+   - 方案 A：配置 `BRAVE_API_KEY` / `FIRECRAWL_API_KEY`（`playwright_fetch` 可走本地 Playwright）
    - 方案 B：配置 `MCP_SERVERS`、`MCP_TOOL_ALLOWLIST`、`EVIDENCE_TOOL_MAP`
 6. 运行环境检查：
    - `python3 -m ai_trading_coach.app.run_manual doctor`
@@ -60,10 +60,10 @@
 ## 配置
 - LLM：`LLM_PROVIDER`, `OPENAI_API_KEY` / `GEMINI_API_KEY`, `LLM_MODEL`
 - MCP：`MCP_SERVERS`, `MCP_TOOL_ALLOWLIST`, `EVIDENCE_TOOL_MAP`
-- 泛用研究工具：`BRAVE_API_KEY`, `FIRECRAWL_API_KEY`, `AGENT_BROWSER_ENDPOINT`（用于 Playwright/Agent-Browser 网页抓取桥接）
+- 泛用研究工具：`BRAVE_API_KEY`, `FIRECRAWL_API_KEY`, `AGENT_BROWSER_ENDPOINT`
 - 若 `MCP_SERVERS=[]`，系统会自动跳过未配置的 MCP 工具，只保留已启用的网页研究工具。
-- 若未配置 `BRAVE_API_KEY` / `FIRECRAWL_API_KEY` / `AGENT_BROWSER_ENDPOINT`，对应网页工具不会注入到 research agent。
-- `doctor` 会直接列出 `agent_tools`，用于确认 Brave / Firecrawl / 浏览器抓取和 MCP 动作是否真的暴露给 research agent。
+- `playwright_fetch` 的可用性检测顺序：先检查 `AGENT_BROWSER_ENDPOINT` 可达；若未配置 endpoint，则探测本地 Playwright runtime（可启动浏览器才算 enabled）。
+- `doctor` 与 runtime 使用同一套工具注册逻辑，输出会同时显示 agent-facing name、backend、以及 skipped reason。
 
 ## yfinance MCP
 推荐用 [narumiruna/yfinance-mcp](https://github.com/narumiruna/yfinance-mcp) 作为 `price_path` 的 MCP 来源。项目当前已内置对以下 tool 的参数适配：
@@ -78,7 +78,7 @@ MCP_TOOL_ALLOWLIST=yfinance:yfinance_get_price_history,yfinance:yfinance_get_tic
 EVIDENCE_TOOL_MAP={"price_path":"yfinance:yfinance_get_price_history","news":"yfinance:yfinance_get_ticker_news"}
 ```
 
-如果你想把股票新闻也切到 yfinance，可把 `news` 映射改成 `yfinance:yfinance_get_ticker_news`。但宏观、政策、非股票主题仍更适合 `rss_search` 或 Brave/Firecrawl。
+默认 `EVIDENCE_TOOL_MAP` 只包含 `price_path` 与 `news`，不再默认注入 filing/macro placeholder。
 
 ## 运行
 - 环境诊断：
@@ -99,6 +99,9 @@ EVIDENCE_TOOL_MAP={"price_path":"yfinance:yfinance_get_price_history","news":"yf
 ## Curated tool architecture
 
 - The research agent only receives curated tools (stable canonical names).
+- Canonical agent-facing names: `get_price_history`, `search_news`, `yahoo_japan_fund_history`, `brave_search`, `firecrawl_extract`, `playwright_fetch`.
+- `get_price_history` / `search_news` backend is resolved from `EVIDENCE_TOOL_MAP` and enforced by `MCP_TOOL_ALLOWLIST`.
 - Internal raw MCP discovery remains available for diagnostics via `MCPClientManager.diagnostics()`.
 - `yahoo_japan_fund_history` now runs on direct local Python implementation by default.
+- `src/ai_trading_coach/modules/mcp/yahoo_japan_fund_history_mcp.py` is the optional local MCP wrapper layer for the same Yahoo Japan fund-history capability (used when you want stdio MCP exposure).
 - `japan_fund_mcp_server` has been removed.

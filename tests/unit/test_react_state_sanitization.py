@@ -11,5 +11,5 @@ def test_mcp_diagnostics_exposes_raw_and_curated_mapping() -> None:
     )
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
     info = manager.diagnostics()
-    assert "yahoo_finance_price_history" in info["curated_tools"]
+    assert "get_price_history" in info["curated_tools"]
     assert "yfinance:yfinance_search" in info["raw_not_exposed_to_agent"]

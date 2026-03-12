@@ -34,7 +34,8 @@ from ai_trading_coach.domain.models import (
 )
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent import CombinedParserAgent, ContextBuilderV2, ReportJudge, ReporterAgent
-from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime, build_agent_tools
+from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime
+from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
 from ai_trading_coach.modules.agent.prompting import PromptManager
 from ai_trading_coach.modules.agent.evidence_packet_builder import build_evidence_packet
 from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
@@ -169,7 +170,11 @@ class LangGraphNodeRuntime:
         req = state["request"]
         parse_result = state["parse_result"]
         runtime = MCPToolRuntime()
-        tools = build_agent_tools(mcp_manager=self.mcp_manager, runtime=runtime)
+        tools = build_runtime_research_tools(
+            settings=self.settings,
+            mcp_manager=self.mcp_manager,
+            runtime=runtime,
+        )
         prompt = self.prompt_manager.load_active("research_agent")
         agent = create_agent(
             model=self.chat_model,

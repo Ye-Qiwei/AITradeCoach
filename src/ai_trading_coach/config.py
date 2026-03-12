@@ -57,8 +57,6 @@ class PathSettings(BaseModel):
 DEFAULT_EVIDENCE_TOOL_MAP: dict[str, str] = {
     EvidenceType.PRICE_PATH.value: "yfinance:yfinance_get_price_history",
     EvidenceType.NEWS.value: "yfinance:yfinance_get_ticker_news",
-    EvidenceType.FILING.value: "sec_edgar:list_filings",
-    EvidenceType.MACRO.value: "fred:series_observations",
 }
 
 
