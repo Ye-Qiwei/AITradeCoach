@@ -47,12 +47,32 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _extract_agent_messages(raw_messages: list[Any]) -> list[str]:
-    out: list[str] = []
+def _extract_message_text(message: Any) -> str:
+    content = getattr(message, "content", message)
+    return content if isinstance(content, str) else str(content)
+
+
+def _extract_agent_messages(raw_messages: list[Any]) -> dict[str, list[str]]:
+    groups = {
+        "input_messages": [],
+        "intermediate_messages": [],
+        "tool_error_messages": [],
+        "final_messages": [],
+    }
     for message in raw_messages:
-        content = getattr(message, "content", message)
-        out.append(content if isinstance(content, str) else str(content))
-    return out
+        text = _extract_message_text(message).strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if "tool_error:" in lowered or "error invoking tool" in lowered:
+            groups["tool_error_messages"].append(text)
+        elif lowered.startswith("{") and '"task"' in lowered:
+            groups["input_messages"].append(text)
+        elif "returning structured response" in lowered or lowered.startswith("{"):
+            groups["final_messages"].append(text)
+        else:
+            groups["intermediate_messages"].append(text)
+    return groups
 
 
 def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
@@ -61,7 +81,8 @@ def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
     if structured is not None:
         return ResearchAgentFinalContract.model_validate(structured)
 
-    messages = _extract_agent_messages(result.get("messages", []))
+    groups = _extract_agent_messages(result.get("messages", []))
+    messages = groups["final_messages"] or groups["intermediate_messages"]
     if not messages:
         raise ValueError("Research agent produced no output messages.")
 
@@ -192,14 +213,25 @@ class LangGraphNodeRuntime:
         ]
         _normalize_research_output_evidence_ids(research_output, all_items=all_items)
         research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
+        message_groups = _extract_agent_messages(result.get("messages", []))
+        source_count = len(evidence_packet.source_registry)
+        if research_output.judgement_evidence and source_count == 0:
+            message_groups["final_messages"].append("structured response returned without evidence sources")
         return {
-            "agent_messages": list(state.get("agent_messages", [])) + _extract_agent_messages(result.get("messages", [])),
+            "agent_messages": list(state.get("agent_messages", [])) + [
+                *message_groups["input_messages"],
+                *message_groups["intermediate_messages"],
+                *message_groups["tool_error_messages"],
+                *message_groups["final_messages"],
+            ],
+            "agent_message_groups": message_groups,
             "evidence_packet": evidence_packet,
             "tool_calls": list(state.get("tool_calls", [])) + [t.model_dump(mode="json") for t in runtime.tool_traces],
             "react_steps": list(state.get("react_steps", [])) + [s.model_dump(mode="json") for s in runtime.react_steps],
             "research_output": research_output,
             "accumulated_evidence_items": accumulated_items,
             "accumulated_tool_failures": int(state.get("accumulated_tool_failures", 0)) + sum(1 for t in runtime.tool_traces if not t.success),
+            "research_anomalies": ["structured_response_without_evidence"] if (research_output.judgement_evidence and source_count == 0) else [],
         }
 
     def verify_information_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:

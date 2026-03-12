@@ -251,6 +251,36 @@ def _extract_text(value: Any) -> str:
     return str(value)
 
 
+def _group_agent_messages(value: Any) -> dict[str, list[str]]:
+    groups = {
+        "input_messages": [],
+        "intermediate_messages": [],
+        "tool_error_messages": [],
+        "final_messages": [],
+    }
+    if isinstance(value, dict):
+        for key in groups:
+            raw = value.get(key, [])
+            if isinstance(raw, list):
+                groups[key] = [str(item) for item in raw if str(item).strip()]
+        return groups
+
+    for message in value or []:
+        text = _extract_text(message).strip()
+        if not text:
+            continue
+        lowered = text.lower()
+        if "tool_error:" in lowered or "error invoking tool" in lowered:
+            groups["tool_error_messages"].append(text)
+        elif lowered.startswith("{") and '"task"' in lowered:
+            groups["input_messages"].append(text)
+        elif "returning structured response" in lowered or lowered.startswith("{"):
+            groups["final_messages"].append(text)
+        else:
+            groups["intermediate_messages"].append(text)
+    return groups
+
+
 def _serialize_message_like(value: Any, *, max_depth: int = 6) -> dict[str, Any]:
     role = getattr(value, "type", None) or getattr(value, "role", None) or value.__class__.__name__
     data = {
@@ -554,8 +584,13 @@ def _persist_node_artifacts(store: DebugCaptureStore, node_name: str, delta: dic
         _write_text(llm_dir / f"{stem}.md", _capture_to_markdown(capture))
 
     if node_name == "execute_collection":
-        if state.get("agent_messages") is not None:
-            _write_json(node_dir / "agent_messages.json", state.get("agent_messages", []))
+        groups = _group_agent_messages(delta.get("agent_message_groups") or state.get("agent_message_groups") or state.get("agent_messages", []))
+        _write_json(node_dir / "agent_messages.json", groups)
+        _write_text(node_dir / "01_input_messages.md", "\n\n".join(groups["input_messages"]) + ("\n" if groups["input_messages"] else ""))
+        _write_text(node_dir / "02_tool_errors.md", "\n\n".join(groups["tool_error_messages"]) + ("\n" if groups["tool_error_messages"] else ""))
+        _write_text(node_dir / "03_final_messages.md", "\n\n".join(groups["final_messages"]) + ("\n" if groups["final_messages"] else ""))
+        structured = getattr(state.get("research_output"), "model_dump", None)
+        _write_json(node_dir / "04_structured_response.json", state.get("research_output").model_dump(mode="json") if callable(structured) else {})
         if state.get("react_steps") is not None:
             _write_json(node_dir / "react_steps.json", state.get("react_steps", []))
         if state.get("tool_calls") is not None:
@@ -583,13 +618,18 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
     elif node_name == "execute_collection":
         research_output = delta.get("research_output")
         evidence_packet = delta.get("evidence_packet")
-        _kv("agent_messages_total", len(delta.get("agent_messages", [])))
+        groups = _group_agent_messages(delta.get("agent_message_groups") or delta.get("agent_messages", []))
+        _kv("input_messages", len(groups["input_messages"]))
+        _kv("tool_error_messages", len(groups["tool_error_messages"]))
+        _kv("final_messages", len(groups["final_messages"]))
         _kv("tool_calls_total", len(delta.get("tool_calls", [])))
         _kv("react_steps_total", len(delta.get("react_steps", [])))
         if research_output is not None:
             _kv("judgement_evidence", len(research_output.judgement_evidence))
         if evidence_packet is not None:
             _kv("source_registry", len(evidence_packet.source_registry))
+            if research_output is not None and len(research_output.judgement_evidence) > 0 and len(evidence_packet.source_registry) == 0:
+                _kv("anomaly", "structured response returned without evidence", color="yellow")
         tool_calls = delta.get("tool_calls", [])
         if tool_calls:
             latest = tool_calls[-min(3, len(tool_calls)):]
@@ -598,6 +638,10 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
                 for call in latest
             )
             _kv("recent_tools", preview)
+        if groups["tool_error_messages"]:
+            _kv("tool_error_preview", _truncate(groups["tool_error_messages"][-1], 220), color="yellow")
+        if research_output is not None:
+            _kv("output_preview", _truncate(_pretty_json(research_output.model_dump(mode="json")), 220))
 
     elif node_name == "verify_information":
         _kv("is_sufficient", delta.get("is_sufficient"))

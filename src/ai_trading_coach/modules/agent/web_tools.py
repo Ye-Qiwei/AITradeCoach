@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from dataclasses import dataclass
+from typing import Callable
 from urllib import error, parse, request
 
 from ai_trading_coach.config import Settings
@@ -19,26 +19,39 @@ class WebToolAvailability:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class WebToolConfig:
+    brave_api_key: str
+    firecrawl_api_key: str
+    agent_browser_endpoint: str
+
+
+def web_tool_config(*, settings: Settings) -> WebToolConfig:
+    return WebToolConfig(
+        brave_api_key=settings.brave_api_key.strip(),
+        firecrawl_api_key=settings.firecrawl_api_key.strip(),
+        agent_browser_endpoint=settings.agent_browser_endpoint.strip(),
+    )
+
+
 def web_tool_availability(*, settings: Settings) -> dict[str, WebToolAvailability]:
-    brave_key = settings.brave_api_key.strip()
-    firecrawl_key = settings.firecrawl_api_key.strip()
-    endpoint = settings.agent_browser_endpoint.strip()
+    config = web_tool_config(settings=settings)
 
     brave = WebToolAvailability(
         name="brave_search",
         backend="web:brave_search_api",
-        available=bool(brave_key),
-        reason=None if brave_key else "BRAVE_API_KEY is missing",
+        available=bool(config.brave_api_key),
+        reason=None if config.brave_api_key else "BRAVE_API_KEY is missing",
     )
     firecrawl = WebToolAvailability(
         name="firecrawl_extract",
         backend="web:firecrawl_scrape_api",
-        available=bool(firecrawl_key),
-        reason=None if firecrawl_key else "FIRECRAWL_API_KEY is missing",
+        available=bool(config.firecrawl_api_key),
+        reason=None if config.firecrawl_api_key else "FIRECRAWL_API_KEY is missing",
     )
 
-    if endpoint:
-        reachable, reason = _probe_http_endpoint(endpoint)
+    if config.agent_browser_endpoint:
+        reachable, reason = _probe_http_endpoint(config.agent_browser_endpoint)
         playwright = WebToolAvailability(
             name="playwright_fetch",
             backend="browser:http_bridge",
@@ -57,21 +70,27 @@ def web_tool_availability(*, settings: Settings) -> dict[str, WebToolAvailabilit
     return {item.name: item for item in (brave, firecrawl, playwright)}
 
 
-def brave_search(query: str, count: int = 5) -> str:
-    api_key = os.getenv("BRAVE_API_KEY", "").strip()
-    return _brave_search_impl(query=query, count=count, api_key=api_key)
+def make_brave_search(*, api_key: str) -> Callable[[str, int], str]:
+    def _brave_search(query: str, count: int = 5) -> str:
+        return _brave_search_impl(query=query, count=count, api_key=api_key)
+
+    return _brave_search
 
 
-def firecrawl_extract(url: str) -> str:
-    api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
-    return _firecrawl_extract_impl(url=url, api_key=api_key)
+def make_firecrawl_extract(*, api_key: str) -> Callable[[str], str]:
+    def _firecrawl_extract(url: str) -> str:
+        return _firecrawl_extract_impl(url=url, api_key=api_key)
+
+    return _firecrawl_extract
 
 
-def playwright_fetch(url: str, instruction: str = "extract main content") -> str:
-    endpoint = os.getenv("AGENT_BROWSER_ENDPOINT", "").strip()
-    if endpoint:
-        return _playwright_fetch_http(url=url, instruction=instruction, endpoint=endpoint)
-    return asyncio.run(_playwright_fetch_local(url=url, instruction=instruction))
+def make_playwright_fetch(*, endpoint: str) -> Callable[[str, str], str]:
+    def _playwright_fetch(url: str, instruction: str = "extract main content") -> str:
+        if endpoint:
+            return _playwright_fetch_http(url=url, instruction=instruction, endpoint=endpoint)
+        return asyncio.run(_playwright_fetch_local(url=url, instruction=instruction))
+
+    return _playwright_fetch
 
 
 def _probe_http_endpoint(endpoint: str) -> tuple[bool, str | None]:
@@ -157,3 +176,14 @@ async def _playwright_fetch_local(*, url: str, instruction: str) -> str:
             return json.dumps({"url": url, "instruction": instruction, "title": title, "content": body[:7000]}, ensure_ascii=False)
         finally:
             await browser.close()
+
+
+__all__ = [
+    "WebToolAvailability",
+    "WebToolConfig",
+    "web_tool_config",
+    "web_tool_availability",
+    "make_brave_search",
+    "make_firecrawl_extract",
+    "make_playwright_fetch",
+]

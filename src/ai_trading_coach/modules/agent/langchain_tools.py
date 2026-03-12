@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -53,36 +53,88 @@ def build_agent_tools(*, mcp_manager: MCPClientManager, runtime: MCPToolRuntime)
     )
 
 
+def build_traced_structured_tool(*, name: str, description: str, server_id: str, runtime: MCPToolRuntime, handler: Callable[..., str]) -> StructuredTool:
+    def _invoke(**kwargs: Any) -> str:
+        return asyncio.run(
+            _record_tool_attempt(
+                runtime=runtime,
+                action_name=name,
+                server_id=server_id,
+                tool_name=name,
+                arguments=kwargs,
+                run_call=lambda: _run_sync_handler(handler=handler, kwargs=kwargs),
+            )
+        )
+
+    return StructuredTool.from_function(func=_invoke, name=name, description=description)
+
+
+async def _run_sync_handler(*, handler: Callable[..., str], kwargs: dict[str, Any]) -> tuple[list[EvidenceItem], str | None]:
+    result = handler(**kwargs)
+    if isinstance(result, str) and result.strip().startswith("tool_error:"):
+        return [], result.strip().split("tool_error:", 1)[1].strip() or "unknown tool error"
+    return [], None
+
+
 def _build_external_tool(spec: CuratedToolDefinition, tool_ref: MCPToolRef, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> StructuredTool:
     def _invoke(**kwargs: Any) -> str:
-        validated = CuratedToolInput.model_validate(kwargs)
-        return asyncio.run(_invoke_external(spec=spec, tool_ref=tool_ref, validated=validated, mcp_manager=mcp_manager, runtime=runtime))
+        return asyncio.run(_invoke_external(spec=spec, tool_ref=tool_ref, kwargs=kwargs, mcp_manager=mcp_manager, runtime=runtime))
 
     return StructuredTool.from_function(func=_invoke, name=spec.canonical_name, description=f"{spec.description} Use when: {spec.when_to_use}.")
 
 
 def _build_local_tool(spec: CuratedToolDefinition, runtime: MCPToolRuntime) -> StructuredTool:
     def _invoke(**kwargs: Any) -> str:
-        validated = CuratedToolInput.model_validate(kwargs)
-        return asyncio.run(_invoke_local(spec=spec, validated=validated, runtime=runtime))
+        return asyncio.run(_invoke_local(spec=spec, kwargs=kwargs, runtime=runtime))
 
     return StructuredTool.from_function(func=_invoke, name=spec.canonical_name, description=f"{spec.description} Use when: {spec.when_to_use}.")
 
 
-async def _invoke_external(*, spec: CuratedToolDefinition, tool_ref: MCPToolRef, validated: CuratedToolInput, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> str:
-    step = _start_step(spec.canonical_name, validated, runtime)
-    subtask = PlanSubTask(subtask_id=f"react_{spec.canonical_name}_{len(runtime.tool_traces)+1}", objective=validated.objective or spec.description, tool_category="mcp", evidence_type=spec.evidence_type, query=validated.query, tickers=validated.tickers, time_window=validated.time_window)
-    args = {"objective": validated.objective, "query": validated.query, "tickers": validated.tickers, "time_window": validated.time_window, "judgement_ids": validated.judgement_ids}
-    return await _execute_and_record(spec=spec, action_name=spec.canonical_name, server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, arguments=args, subtask=subtask, mcp_manager=mcp_manager, runtime=runtime, step=step)
+async def _invoke_external(*, spec: CuratedToolDefinition, tool_ref: MCPToolRef, kwargs: dict[str, Any], mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> str:
+    validated: CuratedToolInput | None = None
+
+    async def _run() -> tuple[list[EvidenceItem], str | None]:
+        nonlocal validated
+        validated = CuratedToolInput.model_validate(kwargs)
+        subtask = PlanSubTask(
+            subtask_id=f"react_{spec.canonical_name}_{len(runtime.tool_traces)+1}",
+            objective=validated.objective or spec.description,
+            tool_category=spec.tool_category,
+            evidence_type=spec.evidence_type,
+            query=validated.query,
+            tickers=validated.tickers,
+            time_window=validated.time_window,
+        )
+        args = {
+            "objective": validated.objective,
+            "query": validated.query,
+            "tickers": validated.tickers,
+            "time_window": validated.time_window,
+            "judgement_ids": validated.judgement_ids,
+        }
+        raw = await mcp_manager.call_tool(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, arguments=args)
+        items = normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw)
+        for item in items:
+            item.extensions["judgement_ids"] = validated.judgement_ids
+        runtime.evidence_items.extend(items)
+        return items, None
+
+    return await _record_tool_attempt(
+        runtime=runtime,
+        action_name=spec.canonical_name,
+        server_id=tool_ref.server_id,
+        tool_name=tool_ref.tool_name,
+        arguments=kwargs,
+        run_call=_run,
+    )
 
 
-async def _invoke_local(*, spec: CuratedToolDefinition, validated: CuratedToolInput, runtime: MCPToolRuntime) -> str:
-    step = _start_step(spec.canonical_name, validated, runtime)
-    started = utc_now()
-    t0 = perf_counter()
-    items: list[EvidenceItem] = []
-    err: str | None = None
-    try:
+async def _invoke_local(*, spec: CuratedToolDefinition, kwargs: dict[str, Any], runtime: MCPToolRuntime) -> str:
+    validated: CuratedToolInput | None = None
+
+    async def _run() -> tuple[list[EvidenceItem], str | None]:
+        nonlocal validated
+        validated = CuratedToolInput.model_validate(kwargs)
         if validated.fund_code:
             payload = await get_fund_history_by_code(validated.fund_code, max_pages=validated.max_pages)
         elif validated.url:
@@ -91,23 +143,35 @@ async def _invoke_local(*, spec: CuratedToolDefinition, validated: CuratedToolIn
             raise ValueError("Provide either fund_code or url")
         items = _fund_history_to_evidence(payload, validated)
         runtime.evidence_items.extend(items)
-    except Exception as exc:  # noqa: BLE001
-        err = str(exc)
-    _finish_trace(runtime, step, started, t0, "local_python", spec.canonical_name, validated.model_dump(mode="json"), items, err)
-    return _build_observation(spec.canonical_name, items, err)
+        return items, None
+
+    return await _record_tool_attempt(
+        runtime=runtime,
+        action_name=spec.canonical_name,
+        server_id="local_python",
+        tool_name=spec.canonical_name,
+        arguments=kwargs,
+        run_call=_run,
+    )
 
 
-async def _execute_and_record(*, spec: CuratedToolDefinition, action_name: str, server_id: str, tool_name: str, arguments: dict[str, Any], subtask: PlanSubTask, mcp_manager: MCPClientManager, runtime: MCPToolRuntime, step: ReActStep) -> str:
+async def _record_tool_attempt(
+    *,
+    runtime: MCPToolRuntime,
+    action_name: str,
+    server_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    run_call: Callable[[], Awaitable[tuple[list[EvidenceItem], str | None]]],
+) -> str:
+    step = _start_step(action_name, arguments, runtime)
     started = utc_now()
     t0 = perf_counter()
     items: list[EvidenceItem] = []
     err: str | None = None
     try:
-        raw = await mcp_manager.call_tool(server_id=server_id, tool_name=tool_name, arguments=arguments)
-        items = normalize_tool_output(server_id=server_id, tool_name=tool_name, subtask=subtask, raw_result=raw)
-        for item in items:
-            item.extensions["judgement_ids"] = step.action_input.get("judgement_ids", [])
-        runtime.evidence_items.extend(items)
+        items, explicit_err = await run_call()
+        err = explicit_err
     except Exception as exc:  # noqa: BLE001
         err = str(exc)
     _finish_trace(runtime, step, started, t0, server_id, tool_name, arguments, items, err)
@@ -129,8 +193,8 @@ def _fund_history_to_evidence(payload: dict[str, Any], validated: CuratedToolInp
     ]
 
 
-def _start_step(action_name: str, validated: CuratedToolInput, runtime: MCPToolRuntime) -> ReActStep:
-    step = ReActStep(step_index=len(runtime.react_steps)+1, thought=f"Call curated tool {action_name}", action=action_name, action_input=validated.model_dump(mode="json"), started_at=utc_now())
+def _start_step(action_name: str, action_input: dict[str, Any], runtime: MCPToolRuntime) -> ReActStep:
+    step = ReActStep(step_index=len(runtime.react_steps)+1, thought=f"Call curated tool {action_name}", action=action_name, action_input=action_input, started_at=utc_now())
     return step
 
 
@@ -154,6 +218,7 @@ def _build_observation(name: str, items: list[EvidenceItem], err: str | None) ->
 __all__ = [
     "MCPToolRuntime",
     "build_agent_tools",
+    "build_traced_structured_tool",
     "_build_external_tool",
     "_build_local_tool",
 ]

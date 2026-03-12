@@ -12,6 +12,7 @@ from ai_trading_coach.domain.models import EvidencePacket, ReviewRunRequest, Tas
 
 class OrchestratorGraphState(TypedDict, total=False):
     agent_messages: list[str]
+    agent_message_groups: dict[str, list[str]]
     request: ReviewRunRequest
     parse_result: ParserOutput
     evidence_packet: EvidencePacket
@@ -34,4 +35,5 @@ class OrchestratorGraphState(TypedDict, total=False):
     accumulated_evidence_items: list[Any]
     accumulated_tool_failures: int
     insufficiency_reason: str
+    research_anomalies: list[str]
     final_result: TaskResult

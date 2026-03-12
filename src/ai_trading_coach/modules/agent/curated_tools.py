@@ -18,6 +18,7 @@ class CuratedToolDefinition:
     output_summary_style: str
     tags: tuple[str, ...]
     implementation_kind: Literal["local_python", "external_mcp"]
+    tool_category: Literal["market_data", "news_search", "filings_financials", "macro_data"]
     implementation_ref: str = ""
     evidence_type: EvidenceType | None = None
     enabled: bool = True
@@ -33,6 +34,7 @@ CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
         output_summary_style="timeseries_summary",
         tags=("price", "timeseries", "yfinance"),
         implementation_kind="external_mcp",
+        tool_category="market_data",
         evidence_type=EvidenceType.PRICE_PATH,
     ),
     CuratedToolDefinition(
@@ -44,6 +46,7 @@ CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
         output_summary_style="news_summary",
         tags=("news", "yfinance"),
         implementation_kind="external_mcp",
+        tool_category="news_search",
         evidence_type=EvidenceType.NEWS,
     ),
     CuratedToolDefinition(
@@ -55,6 +58,7 @@ CURATED_TOOL_REGISTRY: tuple[CuratedToolDefinition, ...] = (
         output_summary_style="fund_history_summary",
         tags=("fund", "japan", "nav"),
         implementation_kind="local_python",
+        tool_category="market_data",
         implementation_ref="ai_trading_coach.modules.data_sources.yahoo_japan_fund_history:get_fund_history",
         evidence_type=EvidenceType.PRICE_PATH,
     ),
