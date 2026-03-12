@@ -8,6 +8,7 @@ import json
 import re
 import shutil
 from dataclasses import dataclass
+from ai_trading_coach.modules.agent.curated_tools import enabled_curated_tools
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -20,6 +21,19 @@ from ai_trading_coach.errors import MCPConfigurationError, MCPToolNotAllowedErro
 class MCPToolRef:
     server_id: str
     tool_name: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.server_id}:{self.tool_name}"
+
+
+@dataclass(frozen=True)
+class RawMCPToolMetadata:
+    server_id: str
+    tool_name: str
+    description: str = ""
+    input_schema: dict[str, Any] | None = None
+    available: bool = True
 
     @property
     def key(self) -> str:
@@ -198,6 +212,40 @@ class MCPClientManager:
         return server_id.strip(), tool_name.strip()
 
 
+    def curated_tool_mapping(self) -> dict[str, MCPToolRef]:
+        mapping: dict[str, MCPToolRef] = {}
+        for tool in enabled_curated_tools():
+            if tool.implementation_kind != "external_mcp":
+                continue
+            server_id, tool_name = self._split_tool_ref(tool.implementation_ref)
+            key = f"{server_id}:{tool_name}"
+            if key in self.allowlist:
+                mapping[tool.canonical_name] = MCPToolRef(server_id=server_id, tool_name=tool_name)
+        return mapping
+
+    def discovered_tools(self) -> list[RawMCPToolMetadata]:
+        tools: list[RawMCPToolMetadata] = []
+        for key in sorted(self.allowlist):
+            if ":" not in key:
+                continue
+            server_id, tool_name = key.split(":", 1)
+            tools.append(RawMCPToolMetadata(server_id=server_id, tool_name=tool_name, available=(self.invoker is not None or server_id in self.server_map)))
+        return tools
+
+    def diagnostics(self) -> dict[str, Any]:
+        curated = self.curated_tool_mapping()
+        discovered = self.discovered_tools()
+        exposed_raw_keys = {ref.key for ref in curated.values()}
+        hidden = [item.key for item in discovered if item.key not in exposed_raw_keys]
+        return {
+            "curated_tools": sorted(curated.keys()),
+            "curated_to_raw": {name: ref.key for name, ref in curated.items()},
+            "raw_discovered_tools": [item.key for item in discovered],
+            "raw_not_exposed_to_agent": hidden,
+        }
+
+
+
 def tool_payload_hash(payload: dict[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     import hashlib
@@ -245,8 +293,8 @@ def _prepare_tool_arguments(
         tuple[str | None, str],
         Callable[[dict[str, Any]], dict[str, Any]],
     ] = {
-        ("yfinance", "get_historical_stock_prices"): _build_yfinance_price_history_arguments,
-        ("yfinance", "get_yahoo_finance_news"): _build_yfinance_news_arguments,
+        ("yfinance", "yfinance_get_price_history"): _build_yfinance_price_history_arguments,
+        ("yfinance", "yfinance_get_ticker_news"): _build_yfinance_news_arguments,
         ("rss_search", "rss_search"): _build_rss_search_arguments,
     }
     builder = builders.get((server_id, tool_name)) or builders.get((None, tool_name))
@@ -259,7 +307,7 @@ def _build_yfinance_price_history_arguments(arguments: dict[str, Any]) -> dict[s
     ticker = _first_ticker(arguments)
     if not ticker:
         raise MCPConfigurationError(
-            "yfinance:get_historical_stock_prices requires at least one ticker."
+            "yfinance:yfinance_get_price_history requires at least one ticker."
         )
 
     query = _query_dict(arguments)
@@ -278,7 +326,7 @@ def _build_yfinance_news_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
     ticker = _first_ticker(arguments)
     if not ticker:
         raise MCPConfigurationError(
-            "yfinance:get_yahoo_finance_news requires at least one ticker."
+            "yfinance:yfinance_get_ticker_news requires at least one ticker."
         )
     return {"ticker": ticker}
 

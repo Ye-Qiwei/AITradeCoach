@@ -40,7 +40,6 @@ class PipelineOrchestrator(LangChainAgentOrchestrator):
             chat_model=chat_model,
             settings=settings,
             long_term_store=modules.long_term_store,
-            llm_gateway=modules.llm_gateway,
             prompt_manager=modules.prompt_manager,
         )
         super().__init__(compiled_graph=build_review_graph(runtime), chat_model=chat_model)

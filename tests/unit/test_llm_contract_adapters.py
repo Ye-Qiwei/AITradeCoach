@@ -16,7 +16,7 @@ from ai_trading_coach.domain.llm_output_contracts import (
     ParserOutputContract,
     ReporterOutputContract,
     ResearchAgentFinalContract,
-    ResearchAgentJudgementEvidenceContract,
+    JudgementEvidenceContract,
     TradeActionContract,
 )
 
@@ -62,7 +62,7 @@ def test_parser_adapter_generates_ids_and_clears_invalid_related_actions() -> No
 def test_research_and_reporter_adapters_keep_values_and_validate_domain() -> None:
     research_contract = ResearchAgentFinalContract(
         judgement_evidence=[
-            ResearchAgentJudgementEvidenceContract(
+            JudgementEvidenceContract(
                 judgement_id="j1",
                 evidence_item_ids=["e1"],
                 support_signal="support",

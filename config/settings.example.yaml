@@ -32,7 +32,7 @@ mcp:
   retries: 2
   servers:
     - id: yfinance
-      endpoint: stdio via uv --directory /ABS/PATH/yahoo-finance-mcp run server.py
+      endpoint: stdio via uvx yfmcp@latest
     - id: rss_search
       endpoint: stdio via python3 -m ai_trading_coach.modules.mcp.rss_server_example
     - id: filing

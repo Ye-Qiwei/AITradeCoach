@@ -1,34 +1,16 @@
-# Architecture (Current Mainline)
+# Architecture
 
-## Daily Graph
+Official LangGraph mainline:
 
-`parse_log -> react_research -> build_report_context -> generate_report -> judge_report -> finalize_result/finalize_failure`
+`parse_log -> plan_research -> execute_collection -> verify_information -> build_report_context -> generate_report -> judge_report -> finalize_result/finalize_failure`
 
-- **parse_log**: LLM-only structured extraction to `ParserOutput`。
-- **react_research**: ReAct agent on MCP tools, judgement-oriented research, traceable tool calls。
-- **build_report_context**: judgement + evidence 合并。
-- **generate_report**: 产出 markdown 与 `judgement_feedback`。
-- **judge_report**: rule check + LLM check。
-- **finalize_result**: 产出 `TaskResult`，写长期记忆记录。
+## Tool surface
+- Agent sees **only curated tools**.
+- Curated tools route by two paths:
+  - local: curated tool -> Python function (`yahoo_japan_fund_history`)
+  - external MCP: curated tool -> `MCPClientManager.call_tool`
+- Raw MCP discovery metadata is kept for doctor/diagnostics and mapping audit; raw tool names are not injected to the research agent.
 
-## Long-Term Evaluation Pipeline
-
-独立于 daily graph：
-
-- `run_due_evaluations` 扫描 `data/long_term_memory.json` 中到期记录。
-- 执行最终评测，输出 final_score / commentary。
-- 产生 prompt 改进 overlay 到 `config/prompts/learned_overlays.json`。
-
-## Storage Separation
-
-- Trace storage: `trace_logs/*.json`（流程回看）
-- Long-term memory: `data/long_term_memory.json`（judgement 生命周期）
-
-`clear_traces` 仅清理 trace，不触碰长期记忆。
-
-
-## Daily Review LLM Architecture (Refactor)
-- Unified model invocation via `LangChainLLMGateway` (parser/research synthesis/reporter/judge all share one path).
-- ReAct research now has two explicit phases: evidence gathering and structured synthesis (`ResearchOutput`).
-- Research output enforces judgement-to-evidence ID validity and complete judgement coverage.
-- `dry_run=true` disables long-term memory writes and run artifact persistence.
+## MCP dependency policy
+- Yahoo Finance MCP provider is `narumiruna/yfinance-mcp` (e.g., `uvx yfmcp@latest`).
+- This is still an MCP server process (not direct SaaS API), but no repo clone/project venv is required for normal usage.

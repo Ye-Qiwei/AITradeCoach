@@ -24,7 +24,7 @@ def build_orchestrator_modules(
         parser_agent=CombinedParserAgent(gateway=gateway, prompt_manager=prompt_manager),
         reporter_agent=ReporterAgent(gateway=gateway, prompt_manager=prompt_manager),
         report_judge=ReportJudge(gateway=gateway, prompt_manager=prompt_manager),
-        context_builder=ContextBuilderV2(settings=settings),
+        context_builder=ContextBuilderV2(),
         mcp_manager=MCPClientManager(settings=settings, invoker=mcp_invoker),
         long_term_store=LongTermMemoryStore(),
         llm_gateway=gateway,

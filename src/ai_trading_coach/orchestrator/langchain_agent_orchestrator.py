@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from typing import Any
 
 from ai_trading_coach.domain.models import ReviewRunRequest, TaskResult
@@ -23,7 +24,10 @@ class LangChainAgentOrchestrator:
             "rewrite_count": 0,
             "model_calls": [],
             "tool_calls": [],
-            "errors": [],
+            "run_started_at": datetime.now(timezone.utc),
+            "accumulated_evidence_items": [],
+            "accumulated_tool_failures": 0,
+            "research_retry_count": 0,
         }
         output = self.compiled_graph.invoke(initial_state)
         return output["final_result"]
@@ -35,7 +39,10 @@ class LangChainAgentOrchestrator:
             "rewrite_count": 0,
             "model_calls": [],
             "tool_calls": [],
-            "errors": [],
+            "run_started_at": datetime.now(timezone.utc),
+            "accumulated_evidence_items": [],
+            "accumulated_tool_failures": 0,
+            "research_retry_count": 0,
         }
         yield from self.compiled_graph.stream(initial_state)
 

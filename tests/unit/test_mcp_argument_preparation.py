@@ -10,12 +10,12 @@ def _manager() -> MCPClientManager:
         llm_provider_name="openai",
         openai_api_key="test-key",
         mcp_servers_json=(
-            '[{"server_id":"yfinance","transport":"stdio","command":"uv","args":["run","server.py"]},'
+            '[{"server_id":"yfinance","transport":"stdio","command":"uvx","args":["yfmcp@latest"]},'
             '{"server_id":"rss_search","transport":"stdio","command":"python3","args":["-m","rss"]}]'
         ),
-        mcp_tool_allowlist_csv="yfinance:get_historical_stock_prices,yfinance:get_yahoo_finance_news,rss_search:rss_search",
+        mcp_tool_allowlist_csv="yfinance:yfinance_get_price_history,yfinance:yfinance_get_ticker_news,rss_search:rss_search",
         evidence_tool_map_json=(
-            '{"price_path":"yfinance:get_historical_stock_prices","news":"rss_search:rss_search"}'
+            '{"price_path":"yfinance:yfinance_get_price_history","news":"rss_search:rss_search"}'
         ),
     )
     return MCPClientManager(settings=settings)
@@ -26,7 +26,7 @@ def test_prepare_tool_arguments_for_yfinance_history() -> None:
 
     prepared = manager.prepare_tool_arguments(
         server_id="yfinance",
-        tool_name="get_historical_stock_prices",
+        tool_name="yfinance_get_price_history",
         arguments={
             "objective": "Check recent price path",
             "tickers": ["TSLA"],
@@ -43,7 +43,7 @@ def test_prepare_tool_arguments_for_yfinance_news() -> None:
 
     prepared = manager.prepare_tool_arguments(
         server_id="yfinance",
-        tool_name="get_yahoo_finance_news",
+        tool_name="yfinance_get_ticker_news",
         arguments={"tickers": ["NVDA"]},
     )
 
@@ -55,7 +55,7 @@ def test_prepare_tool_arguments_for_yfinance_news_extracts_ticker_from_objective
 
     prepared = manager.prepare_tool_arguments(
         server_id="yfinance",
-        tool_name="get_yahoo_finance_news",
+        tool_name="yfinance_get_ticker_news",
         arguments={"objective": "Check latest sentiment impact for TSLA before CPI"},
     )
 
@@ -67,7 +67,7 @@ def test_prepare_tool_arguments_for_yfinance_news_extracts_hk_ticker() -> None:
 
     prepared = manager.prepare_tool_arguments(
         server_id="yfinance",
-        tool_name="get_yahoo_finance_news",
+        tool_name="yfinance_get_ticker_news",
         arguments={"objective": "Assess upside risks for 0700.HK around earnings"},
     )
 

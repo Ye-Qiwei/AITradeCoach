@@ -66,19 +66,19 @@
 - `doctor` 会直接列出 `agent_tools`，用于确认 Brave / Firecrawl / 浏览器抓取和 MCP 动作是否真的暴露给 research agent。
 
 ## yfinance MCP
-推荐用 [Alex2Yang97/yahoo-finance-mcp](https://github.com/Alex2Yang97/yahoo-finance-mcp) 作为 `price_path` 的 MCP 来源。项目当前已内置对以下 tool 的参数适配：
-- `yfinance:get_historical_stock_prices`
-- `yfinance:get_yahoo_finance_news`
+推荐用 [narumiruna/yfinance-mcp](https://github.com/narumiruna/yfinance-mcp) 作为 `price_path` 的 MCP 来源。项目当前已内置对以下 tool 的参数适配：
+- `yfinance:yfinance_get_price_history`
+- `yfinance:yfinance_get_ticker_news`
 
 一个常见配置如下：
 
 ```dotenv
-MCP_SERVERS=[{"server_id":"yfinance","transport":"stdio","command":"uv","args":["--directory","/ABS/PATH/yahoo-finance-mcp","run","server.py"]},{"server_id":"rss_search","transport":"stdio","command":"python3","args":["-m","ai_trading_coach.modules.mcp.rss_server_example"]}]
-MCP_TOOL_ALLOWLIST=yfinance:get_historical_stock_prices,rss_search:rss_search
-EVIDENCE_TOOL_MAP={"price_path":"yfinance:get_historical_stock_prices","news":"rss_search:rss_search"}
+MCP_SERVERS=[{"server_id":"yfinance","transport":"stdio","command":"uvx","args":["yfmcp@latest"]}]
+MCP_TOOL_ALLOWLIST=yfinance:yfinance_get_price_history,yfinance:yfinance_get_ticker_news
+EVIDENCE_TOOL_MAP={"price_path":"yfinance:yfinance_get_price_history","news":"yfinance:yfinance_get_ticker_news"}
 ```
 
-如果你想把股票新闻也切到 yfinance，可把 `news` 映射改成 `yfinance:get_yahoo_finance_news`。但宏观、政策、非股票主题仍更适合 `rss_search` 或 Brave/Firecrawl。
+如果你想把股票新闻也切到 yfinance，可把 `news` 映射改成 `yfinance:yfinance_get_ticker_news`。但宏观、政策、非股票主题仍更适合 `rss_search` 或 Brave/Firecrawl。
 
 ## 运行
 - 环境诊断：
@@ -94,3 +94,11 @@ EVIDENCE_TOOL_MAP={"price_path":"yfinance:get_historical_stock_prices","news":"r
 - 已删除历史 replay 入口与 replay 相关产物。
 - 已删除旧 pipeline/service 分支与未被主链调用的历史模块。
 - 当前唯一保留主链：`run_manual -> ... -> finalize_result/finalize_failure`。
+
+
+## Curated tool architecture
+
+- The research agent only receives curated tools (stable canonical names).
+- Internal raw MCP discovery remains available for diagnostics via `MCPClientManager.diagnostics()`.
+- `yahoo_japan_fund_history` now runs on direct local Python implementation by default.
+- `japan_fund_mcp_server` has been removed.

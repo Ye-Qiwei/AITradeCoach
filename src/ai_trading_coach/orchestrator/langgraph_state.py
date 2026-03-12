@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, TypedDict
 
 from ai_trading_coach.domain.agent_models import JudgeVerdict
@@ -31,4 +32,10 @@ class OrchestratorGraphState(TypedDict, total=False):
     is_sufficient: bool
     verify_suggestions: list[str]
     research_retry_count: int
+
+    run_started_at: datetime
+    accumulated_evidence_items: list[Any]
+    accumulated_tool_failures: int
+    research_stop_reason: str
+    insufficiency_reason: str
     final_result: TaskResult

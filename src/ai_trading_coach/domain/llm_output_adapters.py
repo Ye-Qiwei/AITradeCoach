@@ -10,7 +10,7 @@ from ai_trading_coach.domain.judgement_models import (
     JudgementEvidence,
     JudgementItem,
     ParserOutput,
-    ResearchSynthesisOutput,
+    ResearchOutput,
     TradeAction,
 )
 from ai_trading_coach.domain.llm_output_contracts import (
@@ -22,7 +22,6 @@ from ai_trading_coach.domain.llm_output_contracts import (
     ParserOutputContract,
     ReporterOutputContract,
     ResearchAgentFinalContract,
-    ResearchSynthesisOutputContract,
     TradeActionContract,
 )
 
@@ -118,16 +117,8 @@ def judgement_evidence_contract_to_domain(contract: JudgementEvidenceContract) -
     )
 
 
-def research_synthesis_contract_to_domain(contract: ResearchSynthesisOutputContract, *, run_id: str) -> ResearchSynthesisOutput:
-    return ResearchSynthesisOutput(
-        research_id=make_research_id(run_id),
-        judgement_evidence=[judgement_evidence_contract_to_domain(i) for i in contract.judgement_evidence],
-        stop_reason=contract.stop_reason,
-    )
-
-
-def research_agent_contract_to_domain(contract: ResearchAgentFinalContract, *, run_id: str) -> ResearchSynthesisOutput:
-    return ResearchSynthesisOutput(
+def research_agent_contract_to_domain(contract: ResearchAgentFinalContract, *, run_id: str) -> ResearchOutput:
+    return ResearchOutput(
         research_id=make_research_id(run_id),
         judgement_evidence=[JudgementEvidence.model_validate(item.model_dump(mode="json")) for item in contract.judgement_evidence],
         stop_reason=contract.stop_reason,

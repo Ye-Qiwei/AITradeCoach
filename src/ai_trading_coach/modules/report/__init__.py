@@ -1,6 +1,3 @@
-"""Review report module."""
+"""Legacy report module removed; report flow now uses reporter agent."""
 
-from .llm_report import LLMReviewReportGenerator
-from .service import StructuredReviewReportGenerator
-
-__all__ = ["StructuredReviewReportGenerator", "LLMReviewReportGenerator"]
+__all__: list[str] = []

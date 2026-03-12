@@ -31,6 +31,8 @@
         "examples/logs/daily_log_sample.md",
         "--run-date",
         "2026-03-07",
+        "--dry-run",
+        "false",
       ],
       "console": "integratedTerminal",
       "justMyCode": true

@@ -27,6 +27,8 @@ class ReporterAgent:
             "constraints": {
                 "must_cover_all_judgements": True,
                 "must_use_source_citations": True,
+                "judgement_order_must_match_input": True,
+                "source_ids_must_match_markdown_citations": True,
             },
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
@@ -35,7 +37,7 @@ class ReporterAgent:
             messages=messages,
             purpose=ModelCallPurpose.REPORT_GENERATION,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
-            input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgements', []))}",
+            input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgement_bundles', []))}",
             output_summary_builder=lambda out: f"markdown_chars={len(out.markdown)}; feedback_items={len(out.judgement_feedback)}",
         )
         return reporter_contract_to_domain(contract_out), trace

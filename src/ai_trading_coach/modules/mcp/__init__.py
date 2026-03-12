@@ -1,12 +1,5 @@
-"""MCP gateway module."""
+"""MCP client/discovery module."""
 
-from .mcp_client_manager import MCPClientManager, MCPToolRef
-from .service import DefaultMCPToolGateway, HttpJsonMCPServerAdapter, MockMCPServerAdapter
+from .mcp_client_manager import MCPClientManager, MCPToolRef, RawMCPToolMetadata
 
-__all__ = [
-    "DefaultMCPToolGateway",
-    "MockMCPServerAdapter",
-    "HttpJsonMCPServerAdapter",
-    "MCPClientManager",
-    "MCPToolRef",
-]
+__all__ = ["MCPClientManager", "MCPToolRef", "RawMCPToolMetadata"]

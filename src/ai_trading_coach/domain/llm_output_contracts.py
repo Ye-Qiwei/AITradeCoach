@@ -77,19 +77,7 @@ class JudgementEvidenceContract(StrictLLMContractModel):
     sufficiency_reason: str
 
 
-class ResearchAgentJudgementEvidenceContract(StrictLLMContractModel):
-    judgement_id: str
-    evidence_item_ids: list[str]
-    support_signal: Literal["support", "oppose", "uncertain"]
-    sufficiency_reason: str
-
-
 class ResearchAgentFinalContract(StrictLLMContractModel):
-    judgement_evidence: list[ResearchAgentJudgementEvidenceContract]
-    stop_reason: str
-
-
-class ResearchSynthesisOutputContract(StrictLLMContractModel):
     judgement_evidence: list[JudgementEvidenceContract]
     stop_reason: str
 

@@ -123,12 +123,6 @@ class ResearchOutput(ExtensibleModel):
 
 
 
-class ResearchSynthesisOutput(ExtensibleModel):
-    research_id: str
-    judgement_evidence: list[JudgementEvidence] = Field(default_factory=list)
-    stop_reason: str = ""
-
-
 class DailyJudgementFeedback(ExtensibleModel):
     judgement_id: str
     initial_feedback: Literal["likely_correct", "likely_wrong", "insufficient_evidence", "high_uncertainty"]

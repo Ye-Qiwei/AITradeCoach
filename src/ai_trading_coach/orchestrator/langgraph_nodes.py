@@ -34,9 +34,9 @@ from ai_trading_coach.domain.models import (
 )
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent import CombinedParserAgent, ContextBuilderV2, ReportJudge, ReporterAgent
-from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime, build_langchain_mcp_tools
+from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime, build_agent_tools
 from ai_trading_coach.modules.agent.prompting import PromptManager
-from ai_trading_coach.modules.agent.react_tools import build_evidence_packet
+from ai_trading_coach.modules.agent.evidence_packet_builder import build_evidence_packet
 from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator.langgraph_state import OrchestratorGraphState
@@ -122,7 +122,6 @@ class LangGraphNodeRuntime:
     chat_model: Any
     settings: Settings
     long_term_store: LongTermMemoryStore
-    llm_gateway: LangChainLLMGateway
     prompt_manager: PromptManager
 
     def parse_log(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
@@ -132,29 +131,6 @@ class LangGraphNodeRuntime:
         model_calls.append(parse_trace.model_dump(mode="json"))
         return {"parse_result": parse_result, "model_calls": model_calls}
 
-
-    def react_research(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        rolling = dict(state)
-        rolling.update(self.plan_research_node(rolling))
-        while True:
-            rolling.update(self.execute_collection_node(rolling))
-            rolling.update(self.verify_information_node(rolling))
-            if self.route_after_verify(rolling) == "research_done":
-                break
-        return {
-            "agent_messages": rolling.get("agent_messages", []),
-            "evidence_packet": rolling["evidence_packet"],
-            "tool_calls": rolling.get("tool_calls", []),
-            "react_steps": rolling.get("react_steps", []),
-            "research_output": rolling["research_output"],
-            "analysis_framework": rolling.get("analysis_framework", ""),
-            "analysis_directions": rolling.get("analysis_directions", []),
-            "info_requirements": rolling.get("info_requirements", []),
-            "collected_info": rolling.get("collected_info", []),
-            "is_sufficient": rolling.get("is_sufficient", True),
-            "verify_suggestions": rolling.get("verify_suggestions", []),
-            "research_retry_count": rolling.get("research_retry_count", 0),
-        }
 
     def plan_research_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         parse_result = state["parse_result"]
@@ -193,7 +169,7 @@ class LangGraphNodeRuntime:
         req = state["request"]
         parse_result = state["parse_result"]
         runtime = MCPToolRuntime()
-        tools = build_langchain_mcp_tools(mcp_manager=self.mcp_manager, runtime=runtime)
+        tools = build_agent_tools(mcp_manager=self.mcp_manager, runtime=runtime)
         prompt = self.prompt_manager.load_active("research_agent")
         agent = create_agent(
             model=self.chat_model,
@@ -228,7 +204,8 @@ class LangGraphNodeRuntime:
             ],
         }
         result = agent.invoke({"messages": [HumanMessage(content=json.dumps(payload, ensure_ascii=False))]})
-        evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=runtime.evidence_items)
+        accumulated_items = list(state.get("accumulated_evidence_items", [])) + list(runtime.evidence_items)
+        evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=accumulated_items)
         final_contract = _parse_final_contract(result)
         synthesis_out = research_agent_contract_to_domain(final_contract, run_id=req.run_id)
         research_output = ResearchOutput.model_validate(synthesis_out.model_dump(mode="json"))
@@ -249,37 +226,48 @@ class LangGraphNodeRuntime:
             [{"item_id": item.item_id, "summary": item.summary} for item in runtime.evidence_items]
         )
         return {
-            "agent_messages": _extract_agent_messages(result.get("messages", [])),
+            "agent_messages": list(state.get("agent_messages", [])) + _extract_agent_messages(result.get("messages", [])),
             "evidence_packet": evidence_packet,
-            "tool_calls": [t.model_dump(mode="json") for t in runtime.tool_traces],
-            "react_steps": [s.model_dump(mode="json") for s in runtime.react_steps],
+            "tool_calls": list(state.get("tool_calls", [])) + [t.model_dump(mode="json") for t in runtime.tool_traces],
+            "react_steps": list(state.get("react_steps", [])) + [s.model_dump(mode="json") for s in runtime.react_steps],
             "research_output": research_output,
             "collected_info": collected_info,
+            "accumulated_evidence_items": accumulated_items,
+            "accumulated_tool_failures": int(state.get("accumulated_tool_failures", 0)) + sum(1 for t in runtime.tool_traces if not t.success),
         }
 
     def verify_information_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         required = state.get("info_requirements", [])
-        collected = state.get("collected_info", [])
         retry_count = int(state.get("research_retry_count", 0)) + 1
-        sufficient = bool(collected) and len(collected) >= min(len(required), 3)
-        suggestions: list[str] = []
+        research_output = state["research_output"]
+        source_count = len({src.source_id for src in state["evidence_packet"].source_registry})
+        all_judgement_ids = {j.judgement_id for j in state["parse_result"].all_judgements()}
+        covered = {item.judgement_id for item in research_output.judgement_evidence if item.evidence_item_ids}
+        tool_failures = int(state.get("accumulated_tool_failures", 0))
+        sufficient = all_judgement_ids.issubset(covered) and source_count >= self.settings.react_require_min_sources
+        stop_reason = "sufficient"
+        insufficiency_reason = ""
         if not sufficient:
-            suggestions = [
-                "Broaden keyword set with synonyms and event-specific terms",
-                "Use brave_search first, then firecrawl_extract for full text",
-                "If static fetch is weak, switch to playwright_fetch for dynamic pages",
-            ]
-            if retry_count >= 3:
-                sufficient = True
-                suggestions.append("Max retry reached; proceed with uncertainty annotation.")
+            insufficiency_reason = f"coverage={len(covered)}/{len(all_judgement_ids)}; sources={source_count}"
+            stop_reason = "continue_collection"
+            if retry_count >= self.settings.react_max_iterations:
+                stop_reason = "max_iterations_reached"
+            if tool_failures >= self.settings.react_max_tool_failures:
+                stop_reason = "max_tool_failures_reached"
         return {
             "is_sufficient": sufficient,
-            "verify_suggestions": suggestions,
+            "verify_suggestions": [] if sufficient else ["Increase source diversity and judgement coverage."],
             "research_retry_count": retry_count,
+            "research_stop_reason": stop_reason,
+            "insufficiency_reason": insufficiency_reason,
         }
 
     def route_after_verify(self, state: OrchestratorGraphState) -> str:
-        return "research_done" if state.get("is_sufficient", False) else "continue_collection"
+        if state.get("is_sufficient", False):
+            return "research_done"
+        if state.get("research_stop_reason") in {"max_iterations_reached", "max_tool_failures_reached"}:
+            return "research_done"
+        return "continue_collection"
 
     def build_report_context(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         context = self.context_builder.for_reporter(parse_result=state["parse_result"], research_output=state["research_output"], evidence_packet=state["evidence_packet"])
@@ -296,7 +284,7 @@ class LangGraphNodeRuntime:
         return {"report_draft": out.markdown, "judgement_feedback": out.judgement_feedback, "model_calls": model_calls}
 
     def judge_report(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        judge_ctx = self.context_builder.for_judge(report_markdown=state["report_draft"], judgement_feedback=state.get("judgement_feedback", []), parse_result=state["parse_result"], research_output=state["research_output"])
+        judge_ctx = self.context_builder.for_judge(report_markdown=state["report_draft"], judgement_feedback=state.get("judgement_feedback", []), parse_result=state["parse_result"], research_output=state["research_output"], report_context=state.get("report_context", {}))
         verdict, trace = self.report_judge.evaluate(report_markdown=state["report_draft"], judge_context=judge_ctx, evidence_packet=state["evidence_packet"])
         model_calls = list(state.get("model_calls", []))
         model_calls.append(trace.model_dump(mode="json"))
@@ -317,15 +305,16 @@ class LangGraphNodeRuntime:
         req = state["request"]
         markdown = state["report_draft"]
         feedback = [DailyJudgementFeedback.model_validate(i) for i in state.get("judgement_feedback", [])]
+        feedback_by_id = {f.judgement_id: f for f in feedback}
         records = [
             LongTermJudgementRecord(
                 judgement_id=j.judgement_id,
                 user_id=req.user_id,
                 run_id=req.run_id,
                 run_date=req.run_date,
-                due_date=compute_due_date(req.run_date, next((f.evaluation_window for f in feedback if f.judgement_id == j.judgement_id), j.proposed_evaluation_window)),
+                due_date=compute_due_date(req.run_date, feedback_by_id[j.judgement_id].evaluation_window),
                 judgement=j,
-                initial_feedback=next((f for f in feedback if f.judgement_id == j.judgement_id), DailyJudgementFeedback(judgement_id=j.judgement_id, initial_feedback="high_uncertainty", evidence_summary="", evaluation_window=j.proposed_evaluation_window, window_rationale="fallback", followup_indicators=[], source_ids=[])),
+                initial_feedback=feedback_by_id[j.judgement_id],
             )
             for j in state["parse_result"].all_judgements()
         ]
@@ -339,7 +328,7 @@ class LangGraphNodeRuntime:
             user_id=req.user_id,
             run_date=req.run_date,
             trigger_type=req.trigger_type,
-            started_at=utc_now(),
+            started_at=state.get("run_started_at", utc_now()),
             ended_at=utc_now(),
             module_spans=[ModuleRunSpan(module_name=ModuleName.LOG_INTAKE, status=RunStatus.SUCCESS), ModuleRunSpan(module_name=ModuleName.MCP_GATEWAY, status=RunStatus.SUCCESS), ModuleRunSpan(module_name=ModuleName.REPORT_GENERATOR, status=RunStatus.SUCCESS), ModuleRunSpan(module_name=ModuleName.EVALUATOR, status=RunStatus.SUCCESS)],
             model_calls=state.get("model_calls", []),
