@@ -17,3 +17,4 @@ dist/
 trace_logs/
 reports/
 .codex/
+debug_artifacts/
