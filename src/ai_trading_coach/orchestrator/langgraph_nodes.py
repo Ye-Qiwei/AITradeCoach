@@ -134,33 +134,7 @@ class LangGraphNodeRuntime:
 
 
     def plan_research_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        parse_result = state["parse_result"]
-        atomic_items: list[dict[str, Any]] = []
-        for judgement in parse_result.all_judgements():
-            for atomic in judgement.atomic_judgements:
-                atomic_items.append(
-                    {
-                        "judgement_id": judgement.judgement_id,
-                        "atomic_id": atomic.id,
-                        "core_thesis": atomic.core_thesis,
-                        "evaluation_timeframe": atomic.evaluation_timeframe,
-                        "dependencies": atomic.dependencies,
-                    }
-                )
-        analysis_directions = [
-            "market_pricing_and_price_path",
-            "fundamental_or_macro_driver_validation",
-            "event_news_and_policy_signal_crosscheck",
-        ]
-        info_requirements = [
-            {"requirement_id": f"req_{idx}", "judgement_id": item["judgement_id"], "atomic_id": item["atomic_id"], "need": item["core_thesis"]}
-            for idx, item in enumerate(atomic_items, start=1)
-        ]
         return {
-            "analysis_framework": "Hypothesis decomposition -> evidence collection -> sufficiency verification",
-            "analysis_directions": analysis_directions,
-            "info_requirements": info_requirements,
-            "collected_info": list(state.get("collected_info", [])),
             "research_retry_count": int(state.get("research_retry_count", 0)),
             "is_sufficient": False,
             "verify_suggestions": list(state.get("verify_suggestions", [])),
@@ -184,26 +158,18 @@ class LangGraphNodeRuntime:
         )
         payload = {
             "task": (
-                "Collect evidence to evaluate each judgement as the final delivery unit. "
-                "Treat info_requirements only as intermediate research clues. "
-                "Final output must match ResearchAgentFinalContract exactly, must cover each judgement_id exactly once, "
-                "and must not output findings or summary."
+                "Collect evidence to evaluate each judgement_id exactly once. "
+                "Return strict ResearchAgentFinalContract JSON only."
             ),
-            "analysis_framework": state.get("analysis_framework", ""),
-            "analysis_directions": state.get("analysis_directions", []),
-            "info_requirements": state.get("info_requirements", []),
-            "collected_info": state.get("collected_info", []),
             "verify_suggestions": state.get("verify_suggestions", []),
             "judgements": [
                 {
                     "judgement_id": j.judgement_id,
                     "category": j.category,
-                    "target_asset_or_topic": j.target_asset_or_topic,
+                    "target": j.target,
                     "thesis": j.thesis,
-                    "atomic_judgements": [a.model_dump(mode="json") for a in j.atomic_judgements],
-                    "evidence_from_user_log": j.evidence_from_user_log,
-                    "implicitness": j.implicitness,
-                    "proposed_evaluation_window": j.proposed_evaluation_window,
+                    "evaluation_window": j.evaluation_window,
+                    "dependencies": j.dependencies,
                 }
                 for j in parse_result.all_judgements()
             ],
@@ -226,23 +192,17 @@ class LangGraphNodeRuntime:
         ]
         _normalize_research_output_evidence_ids(research_output, all_items=all_items)
         research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
-        collected_info = list(state.get("collected_info", []))
-        collected_info.extend(
-            [{"item_id": item.item_id, "summary": item.summary} for item in runtime.evidence_items]
-        )
         return {
             "agent_messages": list(state.get("agent_messages", [])) + _extract_agent_messages(result.get("messages", [])),
             "evidence_packet": evidence_packet,
             "tool_calls": list(state.get("tool_calls", [])) + [t.model_dump(mode="json") for t in runtime.tool_traces],
             "react_steps": list(state.get("react_steps", [])) + [s.model_dump(mode="json") for s in runtime.react_steps],
             "research_output": research_output,
-            "collected_info": collected_info,
             "accumulated_evidence_items": accumulated_items,
             "accumulated_tool_failures": int(state.get("accumulated_tool_failures", 0)) + sum(1 for t in runtime.tool_traces if not t.success),
         }
 
     def verify_information_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
-        required = state.get("info_requirements", [])
         retry_count = int(state.get("research_retry_count", 0)) + 1
         research_output = state["research_output"]
         source_count = len({src.source_id for src in state["evidence_packet"].source_registry})
@@ -250,29 +210,22 @@ class LangGraphNodeRuntime:
         covered = {item.judgement_id for item in research_output.judgement_evidence if item.evidence_item_ids}
         tool_failures = int(state.get("accumulated_tool_failures", 0))
         sufficient = all_judgement_ids.issubset(covered) and source_count >= self.settings.react_require_min_sources
-        stop_reason = "sufficient"
-        insufficiency_reason = ""
-        if not sufficient:
-            insufficiency_reason = f"coverage={len(covered)}/{len(all_judgement_ids)}; sources={source_count}"
-            stop_reason = "continue_collection"
-            if retry_count >= self.settings.react_max_iterations:
-                stop_reason = "max_iterations_reached"
-            if tool_failures >= self.settings.react_max_tool_failures:
-                stop_reason = "max_tool_failures_reached"
+        should_continue = (not sufficient) and retry_count < self.settings.react_max_iterations and tool_failures < self.settings.react_max_tool_failures
+        insufficiency_reason = "" if sufficient else f"coverage={len(covered)}/{len(all_judgement_ids)}; sources={source_count}"
         return {
             "is_sufficient": sufficient,
             "verify_suggestions": [] if sufficient else ["Increase source diversity and judgement coverage."],
             "research_retry_count": retry_count,
-            "research_stop_reason": stop_reason,
             "insufficiency_reason": insufficiency_reason,
+            "continue_collection": should_continue,
         }
 
     def route_after_verify(self, state: OrchestratorGraphState) -> str:
         if state.get("is_sufficient", False):
             return "research_done"
-        if state.get("research_stop_reason") in {"max_iterations_reached", "max_tool_failures_reached"}:
-            return "research_done"
-        return "continue_collection"
+        if state.get("continue_collection", False):
+            return "continue_collection"
+        return "research_done"
 
     def build_report_context(self, state: OrchestratorGraphState) -> OrchestratorGraphState:
         context = self.context_builder.for_reporter(parse_result=state["parse_result"], research_output=state["research_output"], evidence_packet=state["evidence_packet"])

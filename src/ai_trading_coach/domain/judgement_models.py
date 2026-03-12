@@ -20,23 +20,6 @@ class TradeAction(ExtensibleModel):
     action_id: str = ""
     action: Literal["buy", "sell", "add", "reduce", "hold", "watch"]
     target_asset: str
-    position_change: str | None = None
-    action_time: str | None = None
-    reason: str | None = None
-
-
-class AtomicJudgement(ExtensibleModel):
-    id: str
-    core_thesis: str
-    evaluation_timeframe: str = "1 week"
-    dependencies: list[str] = Field(default_factory=list)
-
-    @field_validator("evaluation_timeframe")
-    @classmethod
-    def validate_timeframe(cls, value: str) -> str:
-        if value not in ALLOWED_EVALUATION_WINDOWS:
-            raise ValueError(f"evaluation timeframe must be one of {ALLOWED_EVALUATION_WINDOWS}")
-        return value
 
 class JudgementItem(ExtensibleModel):
     judgement_id: str
@@ -49,18 +32,12 @@ class JudgementItem(ExtensibleModel):
         "non_action",
         "reflection",
     ]
-    target_asset_or_topic: str
+    target: str
     thesis: str
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    evidence_from_user_log: list[str] = Field(default_factory=list)
-    implicitness: Literal["explicit", "implicit", "mixed"] = "explicit"
-    related_actions: list[str] = Field(default_factory=list)
-    related_non_actions: list[str] = Field(default_factory=list)
-    estimated_horizon: str | None = None
-    proposed_evaluation_window: str = "1 week"
-    atomic_judgements: list[AtomicJudgement] = Field(default_factory=list)
+    evaluation_window: str = "1 week"
+    dependencies: list[str] = Field(default_factory=list)
 
-    @field_validator("proposed_evaluation_window")
+    @field_validator("evaluation_window")
     @classmethod
     def validate_window(cls, value: str) -> str:
         if value not in ALLOWED_EVALUATION_WINDOWS:
@@ -73,19 +50,10 @@ class ParserOutput(ExtensibleModel):
     user_id: str
     run_date: date
     trade_actions: list[TradeAction] = Field(default_factory=list)
-    explicit_judgements: list[JudgementItem] = Field(default_factory=list)
-    implicit_judgements: list[JudgementItem] = Field(default_factory=list)
-    opportunity_judgements: list[JudgementItem] = Field(default_factory=list)
-    non_action_judgements: list[JudgementItem] = Field(default_factory=list)
-    reflection_summary: list[str] = Field(default_factory=list)
+    judgements: list[JudgementItem] = Field(default_factory=list)
 
     def all_judgements(self) -> list[JudgementItem]:
-        return [
-            *self.explicit_judgements,
-            *self.implicit_judgements,
-            *self.opportunity_judgements,
-            *self.non_action_judgements,
-        ]
+        return self.judgements
 
 
 
@@ -95,13 +63,12 @@ class JudgementEvidence(ExtensibleModel):
     judgement_id: str
     evidence_item_ids: list[str] = Field(default_factory=list)
     support_signal: Literal["support", "oppose", "uncertain"] = "uncertain"
-    sufficiency_reason: str = ""
+    evidence_quality: Literal["sufficient", "insufficient", "conflicting", "stale", "indirect"] = "insufficient"
 
 
 class ResearchOutput(ExtensibleModel):
     research_id: str
     judgement_evidence: list[JudgementEvidence] = Field(default_factory=list)
-    stop_reason: str = ""
 
     def validate_against(self, judgement_ids: set[str], evidence_ids: set[str]) -> None:
         seen: set[str] = set()
@@ -114,8 +81,6 @@ class ResearchOutput(ExtensibleModel):
             unknown = [eid for eid in item.evidence_item_ids if eid not in evidence_ids]
             if unknown:
                 raise ValueError(f"Unknown evidence_item_ids for {item.judgement_id}: {unknown}")
-            if not item.sufficiency_reason.strip():
-                raise ValueError(f"Missing sufficiency_reason for {item.judgement_id}")
         missing = sorted(judgement_ids - seen)
         if missing:
             raise ValueError(f"Missing judgements in research_output: {missing}")
@@ -126,11 +91,7 @@ class ResearchOutput(ExtensibleModel):
 class DailyJudgementFeedback(ExtensibleModel):
     judgement_id: str
     initial_feedback: Literal["likely_correct", "likely_wrong", "insufficient_evidence", "high_uncertainty"]
-    evidence_summary: str
     evaluation_window: str
-    window_rationale: str
-    followup_indicators: list[str] = Field(default_factory=list)
-    source_ids: list[str] = Field(default_factory=list)
 
     @field_validator("evaluation_window")
     @classmethod

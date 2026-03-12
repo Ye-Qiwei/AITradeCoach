@@ -28,11 +28,7 @@ class CombinedParserAgent:
             "raw_log_text": raw_log_text,
             "extraction_targets": [
                 "trade_actions",
-                "explicit_judgements",
-                "implicit_judgements",
-                "opportunity_judgements",
-                "non_action_judgements",
-                "reflection_summary",
+                "judgements",
             ],
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
@@ -42,6 +38,12 @@ class CombinedParserAgent:
             purpose=ModelCallPurpose.LOG_UNDERSTANDING,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"run_id={run_id}; chars={len(raw_log_text)}",
-            output_summary_builder=lambda out: f"judgements={len(out.all_judgements())}; actions={len(out.trade_actions)}",
+            output_summary_builder=lambda out: f"judgements={len(out.judgements)}; actions={len(out.trade_actions)}",
         )
-        return parser_contract_to_domain(contract_out, run_id=run_id, raw_log_text=raw_log_text), trace
+        return parser_contract_to_domain(
+            contract_out,
+            run_id=run_id,
+            user_id=user_id,
+            run_date=run_date,
+            raw_log_text=raw_log_text,
+        ), trace

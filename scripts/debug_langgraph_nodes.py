@@ -573,14 +573,12 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
         if parse_result is not None:
             _kv("trade_actions", len(parse_result.trade_actions))
             _kv("all_judgements", len(parse_result.all_judgements()))
-            _kv("reflection_summary", len(parse_result.reflection_summary))
             ids = [j.judgement_id for j in parse_result.all_judgements()]
             _kv("judgement_ids", ", ".join(ids) if ids else "-")
 
     elif node_name == "plan_research":
-        _kv("analysis_framework", delta.get("analysis_framework", ""))
-        _kv("analysis_directions", len(delta.get("analysis_directions", [])))
-        _kv("info_requirements", len(delta.get("info_requirements", [])))
+        _kv("research_retry_count", delta.get("research_retry_count"))
+        _kv("verify_suggestions", len(delta.get("verify_suggestions", [])))
 
     elif node_name == "execute_collection":
         research_output = delta.get("research_output")
@@ -590,7 +588,6 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
         _kv("react_steps_total", len(delta.get("react_steps", [])))
         if research_output is not None:
             _kv("judgement_evidence", len(research_output.judgement_evidence))
-            _kv("stop_reason", research_output.stop_reason)
         if evidence_packet is not None:
             _kv("source_registry", len(evidence_packet.source_registry))
         tool_calls = delta.get("tool_calls", [])
@@ -604,7 +601,7 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
 
     elif node_name == "verify_information":
         _kv("is_sufficient", delta.get("is_sufficient"))
-        _kv("research_stop_reason", delta.get("research_stop_reason"))
+        _kv("continue_collection", delta.get("continue_collection"))
         _kv("research_retry_count", delta.get("research_retry_count"))
         if delta.get("insufficiency_reason"):
             _kv("insufficiency_reason", delta.get("insufficiency_reason"), color="yellow")
@@ -612,7 +609,7 @@ def _print_delta(node_name: str, delta: dict[str, Any], state: dict[str, Any]) -
     elif node_name == "build_report_context":
         report_context = delta.get("report_context", {})
         _kv("judgement_bundles", len(report_context.get("judgement_bundles", [])))
-        _kv("source_index", len(report_context.get("source_index", [])))
+        _kv("global_source_index", len(report_context.get("global_source_index", {})))
 
     elif node_name == "generate_report":
         report_draft = delta.get("report_draft", "")

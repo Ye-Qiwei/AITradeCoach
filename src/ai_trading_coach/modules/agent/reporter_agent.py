@@ -28,7 +28,6 @@ class ReporterAgent:
                 "must_cover_all_judgements": True,
                 "must_use_source_citations": True,
                 "judgement_order_must_match_input": True,
-                "source_ids_must_match_markdown_citations": True,
             },
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
