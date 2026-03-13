@@ -15,4 +15,3 @@ def test_agents_share_same_langchain_gateway_instance() -> None:
     assert isinstance(modules.llm_gateway, LangChainLLMGateway)
     assert modules.parser_agent.gateway is modules.llm_gateway
     assert modules.reporter_agent.gateway is modules.llm_gateway
-    assert modules.report_judge.gateway is modules.llm_gateway

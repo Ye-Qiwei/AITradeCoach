@@ -11,13 +11,16 @@ class PromptStore:
         self.root = Path(root_dir)
         self.overlay_path = self.root / overlay_file
 
-    def load_active(self, name: str, registry) -> tuple[str, str]:
-        version, base = registry.load_active(name)
+    def load_active(self, name: str) -> str:
+        path = self.root / f"{name}.md"
+        if not path.exists():
+            raise FileNotFoundError(f"Prompt file not found: {path}")
+        base = path.read_text(encoding="utf-8")
         overlays = self._load_overlays().get(name, [])
         if not overlays:
-            return version, base
+            return base
         learned = "\n".join(f"- {entry['instruction']}" for entry in overlays)
-        return version, f"{base}\n\n# Learned overlay instructions\n{learned}"
+        return f"{base}\n\n# Learned overlay instructions\n{learned}"
 
     def append_overlay(self, prompt_name: str, instruction: str, reason: str) -> None:
         payload = self._load_overlays()

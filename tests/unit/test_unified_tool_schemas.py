@@ -1,3 +1,5 @@
+import pytest
+
 from ai_trading_coach.config import Settings
 from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime
 from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
@@ -22,9 +24,8 @@ def test_required_fields_exposed(monkeypatch) -> None:
     assert "ticker" in tools["search_news"].args
 
 
-def test_empty_calls_fail_at_entry(monkeypatch) -> None:
+def test_empty_calls_raise_validation_error(monkeypatch) -> None:
     tools = _tools(monkeypatch)
     for name in ["brave_search", "firecrawl_extract", "playwright_fetch", "get_price_history", "search_news"]:
-        result = tools[name].invoke({})
-        assert isinstance(result, str)
-        assert result.startswith("tool_error: invalid_input")
+        with pytest.raises(Exception):
+            tools[name].invoke({})

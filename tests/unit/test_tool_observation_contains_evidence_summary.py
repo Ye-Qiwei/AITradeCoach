@@ -13,7 +13,7 @@ def test_browser_tool_not_enabled_when_unavailable(monkeypatch) -> None:
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
 
     tools = resolve_research_tools(settings=settings, mcp_manager=manager)
-    browser = next(item for item in tools if item.agent_name == "playwright_fetch")
+    browser = next(item for item in tools if item.spec.name == "playwright_fetch")
     assert browser.available is False
     assert browser.reason == "missing runtime"
 
@@ -30,6 +30,6 @@ def test_browser_tool_enabled_when_endpoint_reachable(monkeypatch) -> None:
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
 
     tools = resolve_research_tools(settings=settings, mcp_manager=manager)
-    browser = next(item for item in tools if item.agent_name == "playwright_fetch")
+    browser = next(item for item in tools if item.spec.name == "playwright_fetch")
     assert browser.available is True
-    assert browser.backend_name == "browser:http_bridge"
+    assert browser.spec.backend_ref == "browser:http_bridge"

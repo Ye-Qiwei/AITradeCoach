@@ -19,5 +19,5 @@ def test_runtime_and_diagnostics_are_consistent() -> None:
     settings = Settings(llm_provider_name="openai", openai_api_key="x")
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
     runtime_names = {tool.name for tool in build_runtime_research_tools(settings=settings, mcp_manager=manager, runtime=MCPToolRuntime())}
-    diagnostics = {item.agent_name for item in resolve_research_tools(settings=settings, mcp_manager=manager) if item.available}
+    diagnostics = {item.spec.name for item in resolve_research_tools(settings=settings, mcp_manager=manager) if item.available}
     assert runtime_names == diagnostics

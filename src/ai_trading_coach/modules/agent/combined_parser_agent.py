@@ -20,7 +20,7 @@ class CombinedParserAgent:
 
     def parse(self, *, run_id: str, user_id: str, run_date: date, raw_log_text: str) -> tuple[ParserOutput, object | None]:
         prompt = self.prompt_manager.load_active(self.prompt_name)
-        user_payload = {
+        user_context = {
             "user_id": user_id,
             "run_date": run_date.isoformat(),
             "raw_log_text": raw_log_text,
@@ -29,16 +29,16 @@ class CombinedParserAgent:
                 "judgements",
             ],
         }
-        messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
+        messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, context=user_context)
         raw_text, trace = self.gateway.invoke_text(
             messages=messages,
             purpose=ModelCallPurpose.LOG_UNDERSTANDING,
-            prompt_version=f"{prompt.prompt_name}.{prompt.version}",
+            prompt_version=prompt.prompt_name,
             input_summary=f"chars={len(raw_log_text)}",
         )
         return parse_parser_output_text(
             raw_text,
-            run_id="",
+            run_id=run_id,
             user_id=user_id,
             run_date=run_date,
             raw_log_text=raw_log_text,

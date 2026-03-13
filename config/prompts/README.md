@@ -1,12 +1,9 @@
-# Prompt Registry (Versioned)
+# Prompt Files
 
-This directory stores production-safe prompt templates.
+This repository uses a single active prompt file per agent:
 
-Rules:
-- No module should hardcode a long prompt string in business logic.
-- Prompt changes must create a new versioned file and be evaluated offline.
-- Every prompt must declare: input contract, output schema, constraints, failure handling.
+- `log_understanding.md`
+- `research_agent.md`
+- `report_generation.md`
 
-Current baseline version: `baseline_v1`
-
-Active versions are tracked in `manifest.json`.
+Prompt overlays (if produced by due-evaluation) are stored in `learned_overlays.json`.

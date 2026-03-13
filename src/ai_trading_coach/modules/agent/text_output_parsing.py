@@ -1,18 +1,17 @@
-"""Lightweight parsers for weakly-structured LLM text outputs."""
+"""Markdown-first parsers for LLM text outputs."""
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import date
 from typing import Any
+
+import markdown
+from bs4 import BeautifulSoup, Tag
 
 from ai_trading_coach.domain.agent_models import ReporterOutput
 from ai_trading_coach.domain.judgement_models import (
     ALLOWED_EVALUATION_WINDOWS,
-    CollectedEvidenceItem,
     DailyJudgementFeedback,
-    EvidenceSource,
     JudgementEvidence,
     JudgementItem,
     ParserOutput,
@@ -41,169 +40,184 @@ def _normalize_window(value: Any, default: str = "1 week") -> str:
     return text if text in ALLOWED_EVALUATION_WINDOWS else default
 
 
-def _extract_json_payload(raw_text: str) -> Any | None:
-    text = raw_text.strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-    fenced = re.search(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", text, flags=re.DOTALL)
-    if fenced:
-        try:
-            return json.loads(fenced.group(1))
-        except json.JSONDecodeError:
-            return None
-    return None
+def _parse_markdown(raw_text: str) -> BeautifulSoup:
+    stripped = raw_text.strip()
+    if not stripped:
+        raise ValueError("LLM output is empty.")
+    if stripped.startswith("{") or stripped.startswith("["):
+        raise ValueError("Expected markdown output, but JSON-like output was returned.")
+    html = markdown.markdown(raw_text, extensions=["extra"])
+    return BeautifulSoup(html, "html.parser")
 
 
-def _parse_markdown_key_values(block: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for line in block.splitlines():
-        stripped = line.strip().lstrip("-").strip()
-        if ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        out[key.strip().lower()] = value.strip().strip("`")
+def _normalized_key(text: str) -> str:
+    return "_".join(text.strip().lower().replace("-", "_").split())
+
+
+def _heading_sections(soup: BeautifulSoup, level: str) -> dict[str, Tag]:
+    return {heading.get_text(strip=True).lower(): heading for heading in soup.find_all(level)}
+
+
+def _subsections(parent_heading: Tag, level: str = "h2") -> list[tuple[str, Tag]]:
+    found: list[tuple[str, Tag]] = []
+    node = parent_heading.next_sibling
+    while node is not None:
+        if isinstance(node, Tag) and node.name == parent_heading.name:
+            break
+        if isinstance(node, Tag) and node.name == level:
+            found.append((node.get_text(strip=True), node))
+        node = node.next_sibling
+    return found
+
+
+def _heading_fields(heading: Tag) -> dict[str, str | list[str]]:
+    out: dict[str, str | list[str]] = {}
+    node = heading.next_sibling
+    while node is not None:
+        if isinstance(node, Tag) and node.name in {"h1", "h2", "h3"}:
+            break
+        if isinstance(node, Tag) and node.name == "ul":
+            for li in node.find_all("li", recursive=False):
+                text = li.get_text(" ", strip=True)
+                if ":" not in text:
+                    continue
+                key, value = text.split(":", 1)
+                normalized = _normalized_key(key)
+                nested = li.find("ul")
+                if nested is not None:
+                    out[normalized] = [item.get_text(" ", strip=True) for item in nested.find_all("li", recursive=False)]
+                else:
+                    out[normalized] = value.strip()
+        node = node.next_sibling
     return out
 
 
-def parse_parser_output_text(
-    raw_text: str,
-    *,
-    run_id: str,
-    user_id: str,
-    run_date: date,
-    raw_log_text: str,
-) -> ParserOutput:
+def parse_parser_output_text(raw_text: str, *, run_id: str, user_id: str, run_date: date, raw_log_text: str) -> ParserOutput:
     _ = run_id
     _ = raw_log_text
-    payload = _extract_json_payload(raw_text)
-    trade_raw: list[dict[str, Any]] = []
-    judgement_raw: list[dict[str, Any]] = []
-    if isinstance(payload, dict):
-        trade_raw = [i for i in payload.get("trade_actions", []) if isinstance(i, dict)]
-        judgement_raw = [i for i in payload.get("judgements", []) if isinstance(i, dict)]
+    soup = _parse_markdown(raw_text)
+    sections = _heading_sections(soup, "h1")
+    actions_h1 = sections.get("trade actions")
+    judgements_h1 = sections.get("judgements")
+    if actions_h1 is None:
+        raise ValueError("Parser output missing '# Trade Actions' section.")
+    if judgements_h1 is None:
+        raise ValueError("Parser output missing '# Judgements' section.")
 
     trade_actions: list[TradeAction] = []
-    for item in trade_raw:
-        action = str(item.get("action", "")).strip().lower()
-        target_asset = str(item.get("target_asset", item.get("target", ""))).strip()
+    for _, heading in _subsections(actions_h1, "h2"):
+        fields = _heading_fields(heading)
+        action = str(fields.get("action", "")).strip().lower()
+        target_asset = str(fields.get("target_asset", fields.get("target", ""))).strip()
         if action in _ALLOWED_ACTIONS and target_asset:
             trade_actions.append(TradeAction(action=action, target_asset=target_asset))
 
     judgements: list[JudgementItem] = []
-    for item in judgement_raw:
-        category = str(item.get("category", "")).strip().lower()
-        target = str(item.get("target", "")).strip()
-        thesis = str(item.get("thesis", "")).strip()
+    for _, heading in _subsections(judgements_h1, "h2"):
+        fields = _heading_fields(heading)
+        category = str(fields.get("category", "")).strip().lower()
+        target = str(fields.get("target", "")).strip()
+        thesis = str(fields.get("thesis", "")).strip()
         if category not in _ALLOWED_CATEGORIES or not target or not thesis:
             continue
-        deps = item.get("dependencies", [])
-        dep_values = [str(d).strip() for d in (deps if isinstance(deps, list) else [deps]) if str(d).strip()]
+        dependencies = fields.get("dependencies", "")
+        if isinstance(dependencies, list):
+            deps = [item.strip() for item in dependencies if item.strip() and item.strip().lower() != "none"]
+        else:
+            deps = [part.strip() for part in str(dependencies).split(",") if part.strip() and part.strip().lower() != "none"]
         judgements.append(
             JudgementItem(
                 category=category,
                 target=target,
                 thesis=thesis,
-                evaluation_window=_normalize_window(item.get("evaluation_window")),
-                dependencies=dep_values,
+                evaluation_window=_normalize_window(fields.get("evaluation_window")),
+                dependencies=deps,
             )
         )
-
     return ParserOutput(user_id=user_id, run_date=run_date, trade_actions=trade_actions, judgements=judgements)
 
 
-def _parse_research_json(item: dict[str, Any], fallback: JudgementItem | None) -> ResearchedJudgementItem | None:
-    category = str(item.get("category", getattr(fallback, "category", ""))).strip().lower()
-    target = str(item.get("target", getattr(fallback, "target", ""))).strip()
-    thesis = str(item.get("thesis", getattr(fallback, "thesis", ""))).strip()
-    if category not in _ALLOWED_CATEGORIES or not target or not thesis:
-        return None
-    evidence_data = item.get("evidence", {}) if isinstance(item.get("evidence"), dict) else {}
-    raw_items = evidence_data.get("collected_evidence_items", [])
-    collected: list[CollectedEvidenceItem] = []
-    if isinstance(raw_items, list):
-        for raw_item in raw_items:
-            if not isinstance(raw_item, dict):
-                continue
-            sources_raw = raw_item.get("sources", [])
-            sources = [
-                EvidenceSource(
-                    provider=str(src.get("provider", "")).strip() or "unknown",
-                    title=str(src.get("title", "")).strip() or None,
-                    uri=str(src.get("uri", "")).strip() or None,
-                    published_at=str(src.get("published_at", "")).strip() or None,
-                )
-                for src in sources_raw
-                if isinstance(src, dict)
-            ]
-            collected.append(
-                CollectedEvidenceItem(
-                    evidence_type=str(raw_item.get("evidence_type", "other")).strip() or "other",
-                    summary=str(raw_item.get("summary", "")).strip() or "no summary",
-                    related_tickers=[str(t).strip() for t in raw_item.get("related_tickers", []) if str(t).strip()],
-                    sources=sources,
-                )
-            )
-    signal = str(evidence_data.get("support_signal", "uncertain")).strip().lower()
-    quality = str(evidence_data.get("evidence_quality", "insufficient")).strip().lower()
-    evidence = JudgementEvidence(
-        support_signal=signal if signal in _ALLOWED_SIGNALS else "uncertain",
-        evidence_quality=quality if quality in _ALLOWED_QUALITY else "insufficient",
-        evidence_summary=str(evidence_data.get("evidence_summary", "")).strip(),
-        key_points=[str(k).strip() for k in evidence_data.get("key_points", []) if str(k).strip()],
-        collected_evidence_items=collected,
-    )
-    return ResearchedJudgementItem(
-        category=category,
-        target=target,
-        thesis=thesis,
-        evaluation_window=_normalize_window(item.get("evaluation_window", getattr(fallback, "evaluation_window", "1 week"))),
-        dependencies=[str(d).strip() for d in item.get("dependencies", getattr(fallback, "dependencies", [])) if str(d).strip()],
-        evidence=evidence,
-    )
+def parse_research_output_text(raw_text: str, *, judgements: list[JudgementItem]) -> list[dict[str, Any]]:
+    soup = _parse_markdown(raw_text)
+    sections = _heading_sections(soup, "h1")
+    evidence_h1 = sections.get("judgement evidence")
+    if evidence_h1 is None:
+        raise ValueError("Research output missing '# Judgement Evidence' section.")
+    subsections = _subsections(evidence_h1, "h2")
+    if len(subsections) != len(judgements):
+        raise ValueError(
+            f"Research output subsection count mismatch: expected {len(judgements)}, got {len(subsections)}"
+        )
+
+    parsed: list[dict[str, Any]] = []
+    for idx, (title, heading) in enumerate(subsections):
+        fields = _heading_fields(heading)
+        cited_raw = fields.get("cited_sources", [])
+        cited_sources = [str(item).strip() for item in (cited_raw if isinstance(cited_raw, list) else [cited_raw]) if str(item).strip()]
+        parsed.append(
+            {
+                "judgement_ref": title,
+                "support_signal": str(fields.get("support_signal", "uncertain")).strip().lower(),
+                "evidence_quality": str(fields.get("evidence_quality", "insufficient")).strip().lower(),
+                "rationale": str(fields.get("rationale", "")).strip(),
+                "cited_sources": cited_sources,
+                "fallback": judgements[idx],
+            }
+        )
+    return parsed
 
 
-def parse_research_output_text(raw_text: str, *, judgements: list[JudgementItem]) -> ResearchOutput:
-    payload = _extract_json_payload(raw_text)
-    items: list[dict[str, Any]] = []
-    if isinstance(payload, dict):
-        items = [i for i in payload.get("judgements", []) if isinstance(i, dict)]
-    elif isinstance(payload, list):
-        items = [i for i in payload if isinstance(i, dict)]
-
-    parsed: list[ResearchedJudgementItem] = []
+def build_research_output(*, parsed_markdown: list[dict[str, Any]], judgements: list[JudgementItem], cited_items: list[list[dict[str, Any]]]) -> ResearchOutput:
+    items: list[ResearchedJudgementItem] = []
     for idx, fallback in enumerate(judgements):
-        raw_item = items[idx] if idx < len(items) else {}
-        obj = _parse_research_json(raw_item, fallback)
-        if obj is None:
-            obj = ResearchedJudgementItem(
+        section = parsed_markdown[idx] if idx < len(parsed_markdown) else {}
+        support_signal = str(section.get("support_signal", "uncertain")).lower()
+        evidence_quality = str(section.get("evidence_quality", "insufficient")).lower()
+        rationale = str(section.get("rationale", "")).strip()
+        evidence = JudgementEvidence(
+            support_signal=support_signal if support_signal in _ALLOWED_SIGNALS else "uncertain",
+            evidence_quality=evidence_quality if evidence_quality in _ALLOWED_QUALITY else "insufficient",
+            evidence_summary=rationale,
+            collected_evidence_items=cited_items[idx] if idx < len(cited_items) else [],
+        )
+        items.append(
+            ResearchedJudgementItem(
                 category=fallback.category,
                 target=fallback.target,
                 thesis=fallback.thesis,
                 evaluation_window=fallback.evaluation_window,
                 dependencies=fallback.dependencies,
+                evidence=evidence,
             )
-        parsed.append(obj)
-    return ResearchOutput(judgements=parsed)
+        )
+    return ResearchOutput(judgements=items)
 
 
 def parse_reporter_output_text(raw_text: str, judgement_count: int) -> ReporterOutput:
+    soup = _parse_markdown(raw_text)
+    feedback_heading = next((h for h in soup.find_all("h2") if h.get_text(strip=True).lower() == "feedback summary"), None)
+    if feedback_heading is None:
+        raise ValueError("Reporter output missing '## Feedback Summary' section.")
+    table = feedback_heading.find_next("table")
+    if table is None:
+        raise ValueError("Reporter output missing feedback summary markdown table.")
+
+    headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+    rows = table.find_all("tr")[1:]
+    if len(rows) != judgement_count:
+        raise ValueError(f"Feedback row count mismatch: expected {judgement_count}, got {len(rows)}")
+
     feedback: list[DailyJudgementFeedback] = []
-    blocks = [b for b in re.split(r"\n(?=##+\s)", raw_text) if b.strip()]
-    for block in blocks[:judgement_count]:
-        fields = _parse_markdown_key_values(block)
-        initial_feedback = fields.get("initial_feedback", "insufficient_evidence").strip().lower()
+    for row in rows:
+        cols = [td.get_text(strip=True) for td in row.find_all("td")]
+        data = dict(zip(headers, cols, strict=False))
+        initial_feedback = str(data.get("initial_feedback", "insufficient_evidence")).strip().lower()
         if initial_feedback not in _ALLOWED_FEEDBACK:
             initial_feedback = "insufficient_evidence"
         feedback.append(
             DailyJudgementFeedback(
                 initial_feedback=initial_feedback,
-                evaluation_window=_normalize_window(fields.get("evaluation_window")),
+                evaluation_window=_normalize_window(data.get("evaluation_window")),
             )
         )
-    while len(feedback) < judgement_count:
-        feedback.append(DailyJudgementFeedback(initial_feedback="insufficient_evidence", evaluation_window="1 week"))
     return ReporterOutput(markdown=raw_text, judgement_feedback=feedback)

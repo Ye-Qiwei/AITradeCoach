@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -54,25 +52,6 @@ class LangChainLLMGateway:
             token_out=token_out,
             response_size=response_size,
         )
-
-    @staticmethod
-    def _extract_json_payload(raw_text: str) -> Any:
-        text = raw_text.strip()
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        fenced = re.search(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", text, flags=re.DOTALL)
-        if fenced:
-            return json.loads(fenced.group(1))
-
-        start = min([idx for idx in (text.find("{"), text.find("[")) if idx != -1], default=-1)
-        end = max(text.rfind("}"), text.rfind("]"))
-        if start != -1 and end != -1 and end > start:
-            return json.loads(text[start : end + 1])
-
-        raise ValueError("No JSON payload found in model output")
 
     def invoke_text(
         self,

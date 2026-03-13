@@ -1,5 +1,5 @@
 """Prompt loading utilities."""
 
-from .registry import PromptRegistry
+from .prompt_store import PromptStore
 
-__all__ = ["PromptRegistry"]
+__all__ = ["PromptStore"]

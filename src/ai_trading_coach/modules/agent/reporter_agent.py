@@ -19,9 +19,9 @@ class ReporterAgent:
 
     def generate(self, *, evidence_packet: EvidencePacket, report_context: dict[str, object], rewrite_instruction: str | None = None) -> tuple[ReporterOutput, object | None]:
         prompt = self.prompt_manager.load_active(self.prompt_name)
-        user_payload = {
+        user_context = {
             "report_context": report_context,
-            "source_index": [s.provider for s in evidence_packet.source_registry],
+            "sources": [{"source_id": s.source_id or "", "provider": s.provider, "title": s.title or "", "uri": s.uri or ""} for s in evidence_packet.source_registry],
             "rewrite_instruction": rewrite_instruction,
             "constraints": {
                 "must_cover_all_judgements": True,
@@ -29,11 +29,11 @@ class ReporterAgent:
                 "judgement_order_must_match_input": True,
             },
         }
-        messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
+        messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, context=user_context)
         raw_text, trace = self.gateway.invoke_text(
             messages=messages,
             purpose=ModelCallPurpose.REPORT_GENERATION,
-            prompt_version=f"{prompt.prompt_name}.{prompt.version}",
+            prompt_version=prompt.prompt_name,
             input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgement_bundles', []))}",
         )
         return parse_reporter_output_text(raw_text, len(report_context.get("judgement_bundles", []))), trace

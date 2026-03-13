@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -20,7 +19,7 @@ from ai_trading_coach.modules.agent.evidence_packet_builder import build_evidenc
 from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime
 from ai_trading_coach.modules.agent.prompting import PromptManager
 from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
-from ai_trading_coach.modules.agent.text_output_parsing import parse_research_output_text
+from ai_trading_coach.modules.agent.text_output_parsing import build_research_output, parse_research_output_text
 from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator.langgraph_state import OrchestratorGraphState
@@ -37,6 +36,7 @@ def _extract_message_text(message: Any) -> str:
 
 def _extract_agent_messages(raw_messages: list[Any]) -> dict[str, list[str]]:
     groups = {"input_messages": [], "intermediate_messages": [], "tool_error_messages": [], "final_messages": []}
+    ai_texts: list[str] = []
     for message in raw_messages:
         text = _extract_message_text(message).strip()
         if not text:
@@ -44,12 +44,14 @@ def _extract_agent_messages(raw_messages: list[Any]) -> dict[str, list[str]]:
         lowered = text.lower()
         if "tool_error:" in lowered:
             groups["tool_error_messages"].append(text)
-        elif lowered.startswith("{") and '"task"' in lowered:
-            groups["input_messages"].append(text)
-        elif lowered.startswith("{") or lowered.startswith("["):
+            continue
+        if "# judgement evidence" in lowered:
             groups["final_messages"].append(text)
         else:
             groups["intermediate_messages"].append(text)
+        ai_texts.append(text)
+    if not groups["final_messages"] and ai_texts:
+        groups["final_messages"].append(ai_texts[-1])
     return groups
 
 
@@ -58,6 +60,56 @@ def _latest_prompt_version(model_calls: list[dict[str, Any]], purpose: ModelCall
         if item.get("purpose") == purpose.value and item.get("prompt_version"):
             return str(item["prompt_version"])
     return "unknown"
+
+
+def _render_research_task_markdown(judgements: list[Any], verify_suggestions: list[str]) -> str:
+    lines = [
+        "# Research Task",
+        "",
+        "Provide final output as markdown with `# Judgement Evidence` and one `## Judgement N` subsection per judgement.",
+        "",
+        "## Verification Priorities",
+    ]
+    if verify_suggestions:
+        lines.extend(f"- {item}" for item in verify_suggestions)
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Input Judgements"])
+    for idx, judgement in enumerate(judgements, start=1):
+        lines.extend(
+            [
+                f"### Judgement {idx}",
+                f"- category: {judgement.category}",
+                f"- target: {judgement.target}",
+                f"- thesis: {judgement.thesis}",
+                f"- evaluation_window: {judgement.evaluation_window}",
+            ]
+        )
+        lines.append("- dependencies: " + (", ".join(judgement.dependencies) if judgement.dependencies else "none"))
+    return "\n".join(lines)
+
+
+def _evidence_items_for_sources(evidence_items: list[Any], source_ids: list[str]) -> list[dict[str, Any]]:
+    requested = {item.strip().lower() for item in source_ids if item.strip()}
+    if not requested:
+        return []
+    matched: list[dict[str, Any]] = []
+    for evidence in evidence_items:
+        source_tokens = {
+            str(source.source_id or "").strip().lower()
+            for source in evidence.sources
+        }
+        source_tokens.update(str(source.provider or "").strip().lower() for source in evidence.sources)
+        source_tokens.update(str(source.title or "").strip().lower() for source in evidence.sources)
+        source_tokens.update(str(source.uri or "").strip().lower() for source in evidence.sources)
+        if requested.intersection(source_tokens):
+            matched.append({
+                "evidence_type": str(evidence.evidence_type),
+                "summary": evidence.summary,
+                "related_tickers": evidence.related_tickers,
+                "sources": [source.model_dump(mode="json") for source in evidence.sources],
+            })
+    return matched
 
 
 @dataclass
@@ -90,20 +142,27 @@ class LangGraphNodeRuntime:
         tools = build_runtime_research_tools(settings=self.settings, mcp_manager=self.mcp_manager, runtime=runtime)
         prompt = self.prompt_manager.load_active("research_agent")
         agent = create_agent(model=self.chat_model, tools=tools, system_prompt=prompt.system_prompt)
-        payload = {
-            "task": "For each judgement in order, collect evidence and return the same-ordered judgement list with an evidence field.",
-            "verify_suggestions": state.get("verify_suggestions", []),
-            "judgements": [j.model_dump(mode="json") for j in parse_result.all_judgements()],
-        }
-        result = agent.invoke({"messages": [HumanMessage(content=json.dumps(payload, ensure_ascii=False))]})
+        research_task = _render_research_task_markdown(
+            parse_result.all_judgements(),
+            list(state.get("verify_suggestions", [])),
+        )
+        result = agent.invoke({"messages": [HumanMessage(content=research_task)]})
         message_groups = _extract_agent_messages(result.get("messages", []))
-        final_messages = message_groups["final_messages"] or message_groups["intermediate_messages"]
-        if not final_messages:
-            raise ValueError("Research agent produced no output messages.")
-        research_output = parse_research_output_text(final_messages[-1], judgements=parse_result.all_judgements())
-        research_output.validate_against(parse_result.all_judgements())
+        if not message_groups["final_messages"]:
+            raise ValueError("Research agent produced no markdown final message.")
 
         accumulated_items = list(state.get("accumulated_evidence_items", [])) + list(runtime.evidence_items)
+        parsed_research = parse_research_output_text(message_groups["final_messages"][-1], judgements=parse_result.all_judgements())
+        cited_items = [
+            _evidence_items_for_sources(accumulated_items, entry.get("cited_sources", []))
+            for entry in parsed_research
+        ]
+        research_output = build_research_output(
+            parsed_markdown=parsed_research,
+            judgements=parse_result.all_judgements(),
+            cited_items=cited_items,
+        )
+        research_output.validate_against(parse_result.all_judgements())
         evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=accumulated_items)
         source_count = len(evidence_packet.source_registry)
         if research_output.judgements and source_count == 0:
