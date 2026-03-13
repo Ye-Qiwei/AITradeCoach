@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.agent_models import JudgeVerdict
-from ai_trading_coach.domain.enums import EvaluationCategory, ModuleName, RunStatus
+from ai_trading_coach.domain.enums import EvaluationCategory, ModelCallPurpose, ModuleName, RunStatus
 from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback, LongTermJudgementRecord, ResearchOutput, compute_due_date
 from ai_trading_coach.domain.models import (
     DailyReviewReport,
@@ -70,6 +70,13 @@ def _extract_agent_messages(raw_messages: list[Any]) -> dict[str, list[str]]:
         else:
             groups["intermediate_messages"].append(text)
     return groups
+
+
+def _latest_prompt_version(model_calls: list[dict[str, Any]], purpose: ModelCallPurpose) -> str:
+    for item in reversed(model_calls):
+        if item.get("purpose") == purpose.value and item.get("prompt_version"):
+            return str(item["prompt_version"])
+    return "unknown"
 
 
 def _normalize_research_output_evidence_ids(
@@ -275,7 +282,7 @@ class LangGraphNodeRuntime:
         if not req.options.dry_run:
             self.long_term_store.upsert_records(records)
             memory_results = [MemoryWriteResult(collection="long_term_memory", memory_ids=[r.judgement_id for r in records])]
-        report = DailyReviewReport(report_id=f"report_{req.run_id}", user_id=req.user_id, report_date=req.run_date, title=f"Daily Trading Review - {req.run_date}", sections=[ReportSection(title="Daily Feedback", content=markdown)], generated_prompt_version=self.settings.prompt_version, markdown_body=markdown if markdown.endswith("\n") else markdown + "\n")
+        report = DailyReviewReport(report_id=f"report_{req.run_id}", user_id=req.user_id, report_date=req.run_date, title=f"Daily Trading Review - {req.run_date}", sections=[ReportSection(title="Daily Feedback", content=markdown)], generated_prompt_version=_latest_prompt_version(state.get("model_calls", []), ModelCallPurpose.REPORT_GENERATION), markdown_body=markdown if markdown.endswith("\n") else markdown + "\n")
         trace = RunTrace(
             run_id=req.run_id,
             user_id=req.user_id,

@@ -1,24 +1,17 @@
-"""Configuration management."""
+"""Configuration management for the MVP runtime."""
 
 from __future__ import annotations
 
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from ai_trading_coach.domain.enums import ModuleName
 from ai_trading_coach.errors import MCPConfigurationError, MissingAPIKeyError, MissingLLMProviderError
 
-
-class ModelSettings(BaseModel):
-    provider: str = "gemini"
-    model_name: str = "gemini-2.5-pro"
-    temperature: float = 0.1
-    max_output_tokens: int = 4096
+PROMPT_ROOT = (Path(__file__).resolve().parents[2] / "config" / "prompts").as_posix()
 
 
 class MemorySettings(BaseModel):
@@ -33,7 +26,7 @@ class MemorySettings(BaseModel):
 
 class MCPServerDefinition(BaseModel):
     server_id: str
-    transport: Literal["stdio", "http", "sse"] = "stdio"
+    transport: str = "stdio"
     command: str | None = None
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
@@ -41,135 +34,61 @@ class MCPServerDefinition(BaseModel):
     timeout_seconds: float | None = None
 
 
-class MCPSettings(BaseModel):
-    timeout_seconds: int = 20
-    max_retries: int = 1
-    servers: list[MCPServerDefinition] = Field(default_factory=list)
-
-
-class PathSettings(BaseModel):
-    trace_output_dir: str = "./trace_logs"
-    report_output_dir: str = "./reports"
-    prompt_registry_path: str = "./config/prompts"
-
-
-
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", populate_by_name=True)
-
-    env: Literal["local", "test", "prod"] = Field(
-        default="local", validation_alias=AliasChoices("ENV", "ATC_ENV")
-    )
-    debug: bool = Field(default=False, validation_alias=AliasChoices("DEBUG", "ATC_DEBUG"))
-
-    gemini_api_key: str = ""
-    openai_api_key: str = ""
-    gemini_model: str = "gemini-2.5-pro"
-    model_default: str = ""
-    model_log_understanding: str = ""
-    model_cognition_extraction: str = ""
-    model_evidence_planning: str = ""
-    model_window_selection: str = ""
-    model_cognition_evaluation: str = ""
-    model_report_generation: str = ""
-    model_promptops: str = ""
-
-    chroma_persist_dir: str = "./.chroma"
-    chroma_tenant: str = "default_tenant"
-    chroma_database: str = "default_database"
-
-    scheduler_cron: str = "0 20 * * 1-5"
-    default_user_id: str = "demo_user"
-
-    trace_output_dir: str = "./trace_logs"
-    report_output_dir: str = "./reports"
-    log_level: str = "INFO"
-
-    prompt_version: str = "agent_v2"
-    prompt_registry_path: str = "./config/prompts"
-    use_gemini: bool = Field(
-        default=False, validation_alias=AliasChoices("USE_GEMINI", "ATC_USE_GEMINI")
-    )
-    model_timeout_seconds: int = Field(
-        default=20,
-        validation_alias=AliasChoices("MODEL_TIMEOUT_SECONDS", "ATC_MODEL_TIMEOUT_SECONDS"),
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
     )
 
-    llm_provider_name: str = Field(
-        default="", validation_alias=AliasChoices("LLM_PROVIDER", "ATC_LLM_PROVIDER")
-    )
-    llm_model: str = Field(default="", validation_alias=AliasChoices("LLM_MODEL", "ATC_LLM_MODEL"))
-    llm_timeout_seconds: float = Field(
-        default=20.0,
-        validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS", "ATC_LLM_TIMEOUT_SECONDS"),
-    )
-    brave_api_key: str = Field(
-        default="", validation_alias=AliasChoices("BRAVE_API_KEY", "ATC_BRAVE_API_KEY")
-    )
-    firecrawl_api_key: str = Field(
-        default="", validation_alias=AliasChoices("FIRECRAWL_API_KEY", "ATC_FIRECRAWL_API_KEY")
-    )
-    agent_browser_endpoint: str = Field(
-        default="",
-        validation_alias=AliasChoices("AGENT_BROWSER_ENDPOINT", "ATC_AGENT_BROWSER_ENDPOINT"),
-    )
+    llm_provider_name: str = Field(default="", validation_alias="LLM_PROVIDER")
+    llm_model: str = Field(default="", validation_alias="LLM_MODEL")
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    llm_timeout_seconds: float = Field(default=120.0, validation_alias="LLM_TIMEOUT_SECONDS")
 
-    mcp_servers_json: str = Field(
-        default="[]", validation_alias=AliasChoices("MCP_SERVERS", "ATC_MCP_SERVERS")
-    )
-    mcp_timeout_seconds: int = Field(
-        default=20,
-        validation_alias=AliasChoices("MCP_TIMEOUT_SECONDS", "ATC_MCP_TIMEOUT_SECONDS"),
-    )
-    mcp_max_retries: int = Field(
-        default=1,
-        validation_alias=AliasChoices("MCP_MAX_RETRIES", "ATC_MCP_MAX_RETRIES"),
-    )
+    brave_api_key: str = Field(default="", validation_alias="BRAVE_API_KEY")
+    firecrawl_api_key: str = Field(default="", validation_alias="FIRECRAWL_API_KEY")
+    agent_browser_endpoint: str = Field(default="", validation_alias="AGENT_BROWSER_ENDPOINT")
 
-    agent_max_rewrite_rounds: int = Field(
-        default=2,
-        validation_alias=AliasChoices("AGENT_MAX_REWRITE_ROUNDS", "ATC_AGENT_MAX_REWRITE_ROUNDS"),
-    )
-    react_max_iterations: int = Field(
-        default=6,
-        validation_alias=AliasChoices("REACT_MAX_ITERATIONS", "ATC_REACT_MAX_ITERATIONS"),
-    )
-    react_max_tool_failures: int = Field(
-        default=2,
-        validation_alias=AliasChoices("REACT_MAX_TOOL_FAILURES", "ATC_REACT_MAX_TOOL_FAILURES"),
-    )
-    react_require_min_sources: int = Field(
-        default=2,
-        validation_alias=AliasChoices("REACT_REQUIRE_MIN_SOURCES", "ATC_REACT_REQUIRE_MIN_SOURCES"),
-    )
-    context_budget_planner: int = Field(
-        default=6000,
-        validation_alias=AliasChoices("CONTEXT_BUDGET_PLANNER", "ATC_CONTEXT_BUDGET_PLANNER"),
-    )
-    context_budget_reporter: int = Field(
-        default=9000,
-        validation_alias=AliasChoices("CONTEXT_BUDGET_REPORTER", "ATC_CONTEXT_BUDGET_REPORTER"),
-    )
-    context_budget_judge: int = Field(
-        default=5000,
-        validation_alias=AliasChoices("CONTEXT_BUDGET_JUDGE", "ATC_CONTEXT_BUDGET_JUDGE"),
-    )
+    mcp_servers: list[MCPServerDefinition] = Field(default_factory=list, validation_alias="MCP_SERVERS")
+    mcp_timeout_seconds: int = Field(default=60, validation_alias="MCP_TIMEOUT_SECONDS")
+    mcp_max_retries: int = Field(default=1, validation_alias="MCP_MAX_RETRIES")
 
-    # Backward-compatible legacy aliases.
-    mcp_servers: str = "search,price,filing,news,sentiment,discussion,macro"
-    enable_llm_cognition: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("ENABLE_LLM_COGNITION", "ATC_ENABLE_LLM_COGNITION"),
-    )
-    enable_llm_report: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("ENABLE_LLM_REPORT", "ATC_ENABLE_LLM_REPORT"),
-    )
+    agent_max_rewrite_rounds: int = Field(default=2, validation_alias="AGENT_MAX_REWRITE_ROUNDS")
+    react_max_iterations: int = Field(default=6, validation_alias="REACT_MAX_ITERATIONS")
+    react_max_tool_failures: int = Field(default=2, validation_alias="REACT_MAX_TOOL_FAILURES")
+    react_require_min_sources: int = Field(default=2, validation_alias="REACT_REQUIRE_MIN_SOURCES")
+
+    default_user_id: str = Field(default="demo_user", validation_alias="DEFAULT_USER_ID")
+    chroma_persist_dir: str = Field(default="./.chroma", validation_alias="CHROMA_PERSIST_DIR")
+    trace_output_dir: str = Field(default="./trace_logs", validation_alias="TRACE_OUTPUT_DIR")
+    report_output_dir: str = Field(default="./reports", validation_alias="REPORT_OUTPUT_DIR")
+
+    @field_validator("mcp_servers", mode="before")
+    @classmethod
+    def _parse_mcp_servers(cls, value: object) -> object:
+        if value in (None, "", []):
+            return []
+        if isinstance(value, str):
+            try:
+                payload = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise MCPConfigurationError(f"MCP_SERVERS must be valid JSON: {exc}") from exc
+            if not isinstance(payload, list):
+                raise MCPConfigurationError("MCP_SERVERS must be a JSON array.")
+            return payload
+        return value
 
     def ensure_runtime_dirs(self) -> None:
         Path(self.trace_output_dir).mkdir(parents=True, exist_ok=True)
         Path(self.report_output_dir).mkdir(parents=True, exist_ok=True)
         Path(self.chroma_persist_dir).mkdir(parents=True, exist_ok=True)
+
+    @property
+    def prompt_root(self) -> str:
+        return PROMPT_ROOT
 
     def llm_provider(self) -> str:
         provider = self.llm_provider_name.strip().lower()
@@ -202,79 +121,13 @@ class Settings(BaseSettings):
             return candidate
         if self.llm_provider() == "openai":
             return "gpt-4o-mini"
-        return self.gemini_model
-
-    def as_model_settings(self) -> ModelSettings:
-        return ModelSettings(provider=self.llm_provider(), model_name=self.selected_llm_model())
+        return "gemini-2.5-pro"
 
     def as_memory_settings(self) -> MemorySettings:
         return MemorySettings(persist_dir=self.chroma_persist_dir)
 
     def mcp_server_definitions(self) -> list[MCPServerDefinition]:
-        payload_text = self.mcp_servers_json.strip()
-        if not payload_text:
-            return []
-        try:
-            payload = json.loads(payload_text)
-        except json.JSONDecodeError as exc:
-            raise MCPConfigurationError(f"MCP_SERVERS must be valid JSON: {exc}") from exc
-        if not isinstance(payload, list):
-            raise MCPConfigurationError("MCP_SERVERS must be a JSON array.")
-        try:
-            return [MCPServerDefinition.model_validate(item) for item in payload]
-        except Exception as exc:  # noqa: BLE001
-            raise MCPConfigurationError(f"MCP_SERVERS item validation failed: {exc}") from exc
-
-
-
-    def as_mcp_settings(self) -> MCPSettings:
-        return MCPSettings(
-            timeout_seconds=self.mcp_timeout_seconds,
-            max_retries=self.mcp_max_retries,
-            servers=self.mcp_server_definitions(),
-        )
-
-    def as_path_settings(self) -> PathSettings:
-        return PathSettings(
-            trace_output_dir=self.trace_output_dir,
-            report_output_dir=self.report_output_dir,
-            prompt_registry_path=self.prompt_registry_path,
-        )
-
-    def default_model(self) -> str:
-        return self.model_default or self.gemini_model
-
-    def model_for_module(self, module: ModuleName | str) -> str:
-        name = module.value if isinstance(module, ModuleName) else str(module)
-        mapping = {
-            ModuleName.LOG_INTAKE.value: self.model_log_understanding,
-            ModuleName.COGNITION_ENGINE.value: self.model_cognition_extraction,
-            ModuleName.EVIDENCE_PLANNER.value: self.model_evidence_planning,
-            ModuleName.WINDOW_SELECTOR.value: self.model_window_selection,
-            ModuleName.EVALUATOR.value: self.model_cognition_evaluation,
-            ModuleName.REPORT_GENERATOR.value: self.model_report_generation,
-            ModuleName.PROMPTOPS.value: self.model_promptops,
-        }
-        candidate = mapping.get(name, "")
-        return candidate or self.selected_llm_model()
-
-    def module_model_map(self) -> dict[str, str]:
-        return {
-            ModuleName.LOG_INTAKE.value: self.model_for_module(ModuleName.LOG_INTAKE),
-            ModuleName.COGNITION_ENGINE.value: self.model_for_module(ModuleName.COGNITION_ENGINE),
-            ModuleName.EVIDENCE_PLANNER.value: self.model_for_module(ModuleName.EVIDENCE_PLANNER),
-            ModuleName.WINDOW_SELECTOR.value: self.model_for_module(ModuleName.WINDOW_SELECTOR),
-            ModuleName.EVALUATOR.value: self.model_for_module(ModuleName.EVALUATOR),
-            ModuleName.REPORT_GENERATOR.value: self.model_for_module(ModuleName.REPORT_GENERATOR),
-            ModuleName.PROMPTOPS.value: self.model_for_module(ModuleName.PROMPTOPS),
-        }
-
-    def web_tool_status(self) -> dict[str, bool]:
-        return {
-            "brave_search": bool(self.brave_api_key.strip()),
-            "firecrawl_extract": bool(self.firecrawl_api_key.strip()),
-            "playwright_fetch": bool(self.agent_browser_endpoint.strip()),
-        }
+        return list(self.mcp_servers)
 
 
 @lru_cache(maxsize=1)

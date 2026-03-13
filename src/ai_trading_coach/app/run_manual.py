@@ -19,6 +19,7 @@ from ai_trading_coach.observability.tracing import save_run_trace
 
 app = typer.Typer(add_completion=False)
 
+
 def _environment_report() -> dict[str, Any]:
     settings = get_settings()
     warnings: list[str] = []
@@ -46,15 +47,17 @@ def _environment_report() -> dict[str, Any]:
     }
     try:
         manager = MCPClientManager(settings=settings)
+        resolved = resolve_research_tools(settings=settings, mcp_manager=manager)
         tool_diagnostics = [
             {
-                "agent_name": item.agent_name,
-                "backend": item.backend_name,
-                "category": item.category,
+                "agent_name": item.spec.name,
+                "backend": item.spec.backend_ref,
+                "backend_kind": item.spec.backend_kind,
+                "capability_group": item.spec.capability_group,
                 "available": item.available,
                 "reason": item.reason,
             }
-            for item in resolve_research_tools(settings=settings, mcp_manager=manager)
+            for item in resolved
         ]
         mcp = {
             "ok": True,
@@ -73,7 +76,7 @@ def _environment_report() -> dict[str, Any]:
             "No research tools are configured. Add MCP_SERVERS or enable "
             "BRAVE_API_KEY / FIRECRAWL_API_KEY / AGENT_BROWSER_ENDPOINT."
         )
-    if not [item for item in enabled if item["category"] == "web"]:
+    if not any(item["capability_group"] == "general_web" for item in enabled):
         warnings.append(
             "General web research tools are disabled. Dynamic-page and broad web lookup fallbacks will be unavailable."
         )
@@ -94,14 +97,17 @@ def _environment_report() -> dict[str, Any]:
 def _ensure_research_tools_configured_or_raise() -> None:
     report = _environment_report()
     if report["errors"]:
-        raise typer.BadParameter(report["errors"][0])
+        typer.echo(f"configuration_error: {report['errors'][0]}", err=True)
+        raise typer.Exit(code=2)
     if not report["agent_tools"]:
-        raise typer.BadParameter(
-            "No research tools are configured. Run "
+        typer.echo(
+            "configuration_error: No research tools are configured. Run "
             "`python3 -m ai_trading_coach.app.run_manual doctor` and configure "
             "MCP_SERVERS and/or BRAVE_API_KEY, FIRECRAWL_API_KEY, "
-            "AGENT_BROWSER_ENDPOINT."
+            "AGENT_BROWSER_ENDPOINT.",
+            err=True,
         )
+        raise typer.Exit(code=2)
 
 
 @app.command()
@@ -125,7 +131,7 @@ def run(
         run_date=date.fromisoformat(run_date),
         trigger_type=TriggerType.MANUAL,
         raw_log_text=text,
-        options={"dry_run": dry_run, "debug_mode": settings.debug},
+        options={"dry_run": dry_run, "debug_mode": False},
     )
 
     result = orchestrator.run(request)
@@ -159,21 +165,40 @@ def doctor(
             typer.echo(f"llm_error: {llm['error']}")
 
         mcp = report["mcp"]
+        configured_mcp = len(
+            [
+                item
+                for item in report["tools"]
+                if item["available"] and item["backend_kind"] == "mcp"
+            ]
+        )
         typer.echo(
             f"mcp: {'ok' if mcp['ok'] else 'error'}"
             f" servers={mcp['server_count']}"
-            f" configured_tools={len([item for item in report['tools'] if item['available'] and item['category']=='external_mcp'])}"
+            f" configured_tools={configured_mcp}"
         )
         for item in report["tools"]:
-            line = f"tool: {item['agent_name']} -> {item['backend']} ({'enabled' if item['available'] else 'skipped'})"
+            line = (
+                f"tool: {item['agent_name']} -> {item['backend']} "
+                f"[{item['backend_kind']}/{item['capability_group']}] "
+                f"({'enabled' if item['available'] else 'skipped'})"
+            )
             if item["reason"]:
                 line += f" reason={item['reason']}"
             typer.echo(line)
         if mcp["error"]:
             typer.echo(f"mcp_error: {mcp['error']}")
 
-        enabled_web = [item["agent_name"] for item in report["tools"] if item["available"] and item["category"] == "web"]
-        disabled_web = [item["agent_name"] for item in report["tools"] if (not item["available"]) and item["category"] == "web"]
+        enabled_web = [
+            item["agent_name"]
+            for item in report["tools"]
+            if item["available"] and item["capability_group"] == "general_web"
+        ]
+        disabled_web = [
+            item["agent_name"]
+            for item in report["tools"]
+            if (not item["available"]) and item["capability_group"] == "general_web"
+        ]
         typer.echo(f"web_tools_enabled: {', '.join(enabled_web) if enabled_web else '-'}")
         typer.echo(f"web_tools_disabled: {', '.join(disabled_web) if disabled_web else '-'}")
         typer.echo(

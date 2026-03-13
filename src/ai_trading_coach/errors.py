@@ -30,3 +30,7 @@ class MCPToolNotAllowedError(AITradeCoachError):
 class ReportValidationError(AITradeCoachError):
     """Raised when report generation cannot pass judge checks."""
 
+
+class RuntimeConfigurationError(AITradeCoachError):
+    """Raised when the local runtime configuration is invalid for execution."""
+

@@ -32,7 +32,7 @@ def _runtime(max_rewrites: int, store: DummyStore) -> LangGraphNodeRuntime:
         context_builder=None,
         mcp_manager=None,
         chat_model=None,
-        settings=SimpleNamespace(agent_max_rewrite_rounds=max_rewrites, prompt_version="v", llm_provider=lambda: "openai", selected_llm_model=lambda: "m"),
+        settings=SimpleNamespace(agent_max_rewrite_rounds=max_rewrites, llm_provider=lambda: "openai", selected_llm_model=lambda: "m"),
         long_term_store=store,
         prompt_manager=None,
     )

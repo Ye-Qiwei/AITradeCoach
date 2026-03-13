@@ -21,5 +21,5 @@ def build_scheduled_request(log_path: str, user_id: str | None = None) -> Review
         run_date=today,
         trigger_type=TriggerType.SCHEDULED,
         raw_log_text=content,
-        options={"dry_run": False, "debug_mode": settings.debug},
+        options={"dry_run": False, "debug_mode": False},
     )

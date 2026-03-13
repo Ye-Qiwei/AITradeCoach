@@ -18,7 +18,7 @@ def run(as_of: str = typer.Option(date.today().isoformat(), help="Evaluation dat
     settings = get_settings()
     runner = DueEvaluationRunner(
         memory_store=LongTermMemoryStore(),
-        prompt_store=PromptStore(settings.prompt_registry_path),
+        prompt_store=PromptStore(settings.prompt_root),
     )
     result = runner.run_due_evaluations(as_of=date.fromisoformat(as_of))
     typer.echo({"evaluated": len(result), "results": result})

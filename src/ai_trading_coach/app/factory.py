@@ -19,7 +19,7 @@ def build_orchestrator_modules(
 ) -> OrchestratorModules:
     settings.validate_llm_or_raise()
     gateway = LangChainLLMGateway(settings)
-    prompt_manager = PromptManager(settings.prompt_registry_path)
+    prompt_manager = PromptManager(settings.prompt_root)
     return OrchestratorModules(
         parser_agent=CombinedParserAgent(gateway=gateway, prompt_manager=prompt_manager),
         reporter_agent=ReporterAgent(gateway=gateway, prompt_manager=prompt_manager),
@@ -43,14 +43,14 @@ def build_pipeline_orchestrator(
 def build_cognition_engine(settings: Settings) -> CombinedParserAgent:
     settings.validate_llm_or_raise()
     gateway = LangChainLLMGateway(settings)
-    prompt_manager = PromptManager(settings.prompt_registry_path)
+    prompt_manager = PromptManager(settings.prompt_root)
     return CombinedParserAgent(gateway=gateway, prompt_manager=prompt_manager)
 
 
 def build_report_generator(settings: Settings) -> ReporterAgent:
     settings.validate_llm_or_raise()
     gateway = LangChainLLMGateway(settings)
-    prompt_manager = PromptManager(settings.prompt_registry_path)
+    prompt_manager = PromptManager(settings.prompt_root)
     return ReporterAgent(gateway=gateway, prompt_manager=prompt_manager)
 
 

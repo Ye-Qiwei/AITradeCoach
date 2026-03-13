@@ -72,7 +72,8 @@ class RuntimeToolSpec:
     name: str
     description: str
     args_schema: type[BaseModel]
-    backend_type: str
+    capability_group: str
+    backend_kind: str
     backend_ref: str
     invoke: Callable[[BaseModel], Any]
 
@@ -119,7 +120,7 @@ def make_mcp_price_history_spec(tool_ref: MCPToolRef, mcp_manager: MCPClientMana
         subtask = PlanSubTask(subtask_id=f"price_{payload.ticker}", objective=f"Get price history for {payload.ticker}", tool_category="market_data", evidence_type=EvidenceType.PRICE_PATH, query={"period": payload.period, "interval": payload.interval}, tickers=[payload.ticker])
         return normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw), None
 
-    return RuntimeToolSpec("get_price_history", description, PriceHistoryInput, "mcp", tool_ref.key, _invoke)
+    return RuntimeToolSpec("get_price_history", description, PriceHistoryInput, "market_data", "mcp", tool_ref.key, _invoke)
 
 
 def make_mcp_news_spec(tool_ref: MCPToolRef, mcp_manager: MCPClientManager, *, description: str) -> RuntimeToolSpec:
@@ -128,7 +129,7 @@ def make_mcp_news_spec(tool_ref: MCPToolRef, mcp_manager: MCPClientManager, *, d
         subtask = PlanSubTask(subtask_id=f"news_{payload.ticker}", objective=f"Get latest news for {payload.ticker}", tool_category="news_search", evidence_type=EvidenceType.NEWS, tickers=[payload.ticker])
         return normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw), None
 
-    return RuntimeToolSpec("search_news", description, TickerNewsInput, "mcp", tool_ref.key, _invoke)
+    return RuntimeToolSpec("search_news", description, TickerNewsInput, "ticker_news", "mcp", tool_ref.key, _invoke)
 
 
 def make_local_fund_history_spec(*, description: str) -> RuntimeToolSpec:
@@ -141,7 +142,7 @@ def make_local_fund_history_spec(*, description: str) -> RuntimeToolSpec:
         source_id = f"src_yahoo_japan_fund_{payload.fund_code or 'url'}"
         return [EvidenceItem(item_id=f"ev_fund_{payload.fund_code or 'url'}", evidence_type="price_path", summary=f"fund={result.get('fund_name','')}; rows={len(rows)}", data={"payload": result}, related_tickers=[payload.fund_code] if payload.fund_code else [], sources=[{"source_id": source_id, "source_type": "web", "provider": "yahoo_japan", "uri": payload.url or "", "title": result.get("fund_name", ""), "published_at": None, "fetched_at": utc_now(), "reliability_score": 0.7}])], None
 
-    return RuntimeToolSpec("yahoo_japan_fund_history", description, YahooJapanFundHistoryInput, "python", "local:yahoo_japan", _invoke)
+    return RuntimeToolSpec("yahoo_japan_fund_history", description, YahooJapanFundHistoryInput, "fund_history", "python", "local:yahoo_japan", _invoke)
 
 
 async def _record_tool_attempt(*, runtime: MCPToolRuntime, action_name: str, server_id: str, tool_name: str, arguments: dict[str, Any], run_call: Callable[[], Any]) -> str:
