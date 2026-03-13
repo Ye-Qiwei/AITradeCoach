@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from ai_trading_coach.llm.langchain_chat_model import _openai_chat_kwargs
 from ai_trading_coach.llm.provider import LLMCallRecord, parse_json_object
 
 logger = logging.getLogger(__name__)
@@ -72,12 +73,7 @@ class OpenAILLMProvider:
             from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
             from langchain_openai import ChatOpenAI
 
-            model = ChatOpenAI(
-                model=self.model_name,
-                api_key=self.api_key,
-                timeout=timeout,
-                temperature=0.1,
-            )
+            model = ChatOpenAI(**_openai_chat_kwargs(model=self.model_name, api_key=self.api_key, timeout=timeout))
             response = model.invoke(self._to_langchain_messages(messages, AIMessage, HumanMessage, SystemMessage))
             content = self._response_content_to_text(response.content)
             usage = self._extract_usage(response)

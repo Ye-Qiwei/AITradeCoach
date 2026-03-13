@@ -21,7 +21,7 @@
       "module": "ai_trading_coach.app.run_manual",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
-      "python": "/Users/ye/miniforge3/envs/AITradeCoach/bin/python",
+      "python": "/anaconda/envs/py312/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/src"
       },

@@ -57,7 +57,7 @@ from ai_trading_coach.app.factory import build_orchestrator_modules
 from ai_trading_coach.config import Settings, get_settings
 from ai_trading_coach.domain.enums import TriggerType
 from ai_trading_coach.domain.models import ModelCallTrace, ReviewRunRequest
-from ai_trading_coach.llm.gateway import _validate_schema_cached, utc_now
+from ai_trading_coach.llm.gateway import utc_now
 from ai_trading_coach.modules.agent.research_tools import resolve_research_tools
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator.langgraph_graph import build_review_graph
@@ -767,105 +767,6 @@ def _wrap_runtime_node_methods(runtime: LangGraphNodeRuntime, store: DebugCaptur
 
 
 def _patch_gateway_for_debug(gateway: Any, store: DebugCaptureStore) -> None:
-    def invoke_structured_debug(
-        self: Any,
-        *,
-        schema: type[Any],
-        messages: list[dict[str, str]],
-        purpose: Any,
-        prompt_version: str,
-        input_summary: str,
-        output_summary_builder: Callable[[Any], str] | None = None,
-    ) -> tuple[Any, ModelCallTrace]:
-        _validate_schema_cached(schema)
-        started_at_dt = utc_now()
-        started_perf = perf_counter()
-        capture = LLMCapture(
-            capture_id=store.next_capture_id("structured"),
-            node_name=store.current_node,
-            kind="structured",
-            purpose=getattr(purpose, "value", str(purpose)),
-            prompt_version=prompt_version,
-            schema_name=schema.__name__,
-            started_at=started_at_dt.isoformat(),
-            input_messages=_safe_jsonable(messages),
-            input_summary=input_summary,
-        )
-        raw_response_obj: Any = None
-        parsed_result: Any = None
-        include_raw_used = False
-        try:
-            with_structured_sig = inspect.signature(self.model.with_structured_output)
-            include_raw_used = "include_raw" in with_structured_sig.parameters
-        except Exception:
-            include_raw_used = False
-
-        try:
-            if include_raw_used:
-                structured_model = self.model.with_structured_output(schema, include_raw=True)
-            else:
-                structured_model = self.model.with_structured_output(schema)
-            raw = self._invoke_structured_model_with_warning_filter(structured_model, messages)
-            raw_response_obj = raw
-            if include_raw_used and isinstance(raw, dict) and {"raw", "parsed"}.issubset(raw.keys()):
-                raw_response_obj = raw.get("raw")
-                parsed_candidate = raw.get("parsed")
-                parsing_error = raw.get("parsing_error")
-                if parsing_error is not None:
-                    raise RuntimeError(f"LangChain parsing_error: {parsing_error}")
-                parsed_result = parsed_candidate if isinstance(parsed_candidate, schema) else schema.model_validate(parsed_candidate)
-                capture.extras["include_raw_used"] = True
-            else:
-                parsed_result = raw if isinstance(raw, schema) else schema.model_validate(raw)
-                capture.extras["include_raw_used"] = False
-
-            ended_at_dt = utc_now()
-            latency = int((perf_counter() - started_perf) * 1000)
-            output_summary = output_summary_builder(parsed_result) if output_summary_builder else schema.__name__
-            trace = self._build_model_call_trace(
-                purpose=purpose,
-                started_at=started_at_dt,
-                ended_at=ended_at_dt,
-                prompt_version=prompt_version,
-                input_summary=input_summary,
-                output_summary=output_summary,
-                latency_ms=latency,
-            )
-            capture.ended_at = ended_at_dt.isoformat()
-            capture.latency_ms = latency
-            capture.raw_response = _safe_jsonable(raw_response_obj)
-            capture.raw_text = _extract_text(raw_response_obj) if raw_response_obj is not None else None
-            capture.parsed_response = _safe_jsonable(parsed_result)
-            capture.trace = trace.model_dump(mode="json")
-            capture.usage = _extract_usage(raw_response_obj)
-            store.add_capture(capture)
-            return parsed_result, trace
-        except Exception as exc:  # noqa: BLE001
-            ended_at_dt = utc_now()
-            latency = int((perf_counter() - started_perf) * 1000)
-            _ = self._build_model_call_trace(
-                purpose=purpose,
-                started_at=started_at_dt,
-                ended_at=ended_at_dt,
-                prompt_version=prompt_version,
-                input_summary=input_summary,
-                output_summary=f"error:{exc.__class__.__name__}",
-                latency_ms=latency,
-                error_message=str(exc),
-            )
-            capture.ended_at = ended_at_dt.isoformat()
-            capture.latency_ms = latency
-            capture.error = f"{exc.__class__.__name__}: {exc}"
-            if raw_response_obj is not None:
-                capture.raw_response = _safe_jsonable(raw_response_obj)
-                capture.raw_text = _extract_text(raw_response_obj)
-                capture.usage = _extract_usage(raw_response_obj)
-            store.add_capture(capture)
-            raise RuntimeError(
-                f"Structured output failed for schema={schema.__name__}, "
-                f"purpose={purpose.value}, prompt_version={prompt_version}"
-            ) from exc
-
     def invoke_text_debug(
         self: Any,
         *,
@@ -922,10 +823,10 @@ def _patch_gateway_for_debug(gateway: Any, store: DebugCaptureStore) -> None:
                 capture.usage = _extract_usage(response_obj)
             store.add_capture(capture)
             raise RuntimeError(
-                f"Text output failed for purpose={purpose.value}, prompt_version={prompt_version}"
+                f"Text output failed for purpose={purpose.value}, prompt_version={prompt_version}: "
+                f"{exc.__class__.__name__}: {exc}"
             ) from exc
 
-    gateway.invoke_structured = MethodType(invoke_structured_debug, gateway)
     gateway.invoke_text = MethodType(invoke_text_debug, gateway)
 
 
@@ -951,7 +852,7 @@ def _patch_create_agent_for_debug(store: DebugCaptureStore) -> Callable[..., Any
                     kind="agent",
                     purpose="research_agent",
                     prompt_version="research_agent.runtime",
-                    schema_name="ResearchAgentFinalContract",
+                    schema_name=None,
                     started_at=started_at_dt.isoformat(),
                     input_messages=[{"role": "agent.invoke", "content": _safe_jsonable(inputs)}],
                     input_summary="real create_agent invoke",

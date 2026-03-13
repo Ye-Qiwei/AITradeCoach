@@ -8,16 +8,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage
-from pydantic import ValidationError
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.agent_models import JudgeVerdict
 from ai_trading_coach.domain.enums import EvaluationCategory, ModuleName, RunStatus
 from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback, LongTermJudgementRecord, ResearchOutput, compute_due_date
-from ai_trading_coach.domain.llm_output_adapters import research_agent_contract_to_domain
-from ai_trading_coach.domain.llm_output_contracts import ResearchAgentFinalContract
 from ai_trading_coach.domain.models import (
     DailyReviewReport,
     ErrorRecord,
@@ -38,6 +34,7 @@ from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime
 from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
 from ai_trading_coach.modules.agent.prompting import PromptManager
 from ai_trading_coach.modules.agent.evidence_packet_builder import build_evidence_packet
+from ai_trading_coach.modules.agent.text_output_parsing import parse_research_output_text
 from ai_trading_coach.modules.evaluation.long_term_store import LongTermMemoryStore
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 from ai_trading_coach.orchestrator.langgraph_state import OrchestratorGraphState
@@ -73,40 +70,6 @@ def _extract_agent_messages(raw_messages: list[Any]) -> dict[str, list[str]]:
         else:
             groups["intermediate_messages"].append(text)
     return groups
-
-
-def _parse_final_contract(result: dict[str, Any]) -> ResearchAgentFinalContract:
-    expected_keys = sorted(ResearchAgentFinalContract.model_fields.keys())
-    structured = result.get("structured_response")
-    if structured is not None:
-        return ResearchAgentFinalContract.model_validate(structured)
-
-    groups = _extract_agent_messages(result.get("messages", []))
-    messages = groups["final_messages"] or groups["intermediate_messages"]
-    if not messages:
-        raise ValueError("Research agent produced no output messages.")
-
-    raw_tail = messages[-1]
-    snippet = raw_tail if len(raw_tail) <= 400 else f"{raw_tail[:400]}...(truncated)"
-    json_parse_ok = False
-    actual_keys: list[str] = []
-    try:
-        parsed = json.loads(raw_tail)
-        json_parse_ok = True
-        if isinstance(parsed, dict):
-            actual_keys = sorted(parsed.keys())
-        else:
-            actual_keys = [f"<non-object:{type(parsed).__name__}>"]
-        return ResearchAgentFinalContract.model_validate(parsed)
-    except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-        raise ValueError(
-            "Failed to parse research final contract. "
-            f"structured_response_present={structured is not None}; "
-            f"json_parse_ok={json_parse_ok}; "
-            f"expected_top_level_keys={expected_keys}; "
-            f"actual_top_level_keys={actual_keys}; "
-            f"last_message_snippet={snippet}"
-        ) from exc
 
 
 def _normalize_research_output_evidence_ids(
@@ -174,13 +137,12 @@ class LangGraphNodeRuntime:
         agent = create_agent(
             model=self.chat_model,
             tools=tools,
-            system_prompt=prompt.system_prompt,
-            response_format=ToolStrategy(ResearchAgentFinalContract),
+            system_prompt=prompt.system_prompt
         )
         payload = {
             "task": (
                 "Collect evidence to evaluate each judgement_id exactly once. "
-                "Return strict ResearchAgentFinalContract JSON only."
+                "Return one final JUDGEMENT_EVIDENCE summary section in JSON or markdown list format."
             ),
             "verify_suggestions": state.get("verify_suggestions", []),
             "judgements": [
@@ -198,9 +160,11 @@ class LangGraphNodeRuntime:
         result = agent.invoke({"messages": [HumanMessage(content=json.dumps(payload, ensure_ascii=False))]})
         accumulated_items = list(state.get("accumulated_evidence_items", [])) + list(runtime.evidence_items)
         evidence_packet = build_evidence_packet(packet_id=f"packet_{req.run_id}", user_id=req.user_id, evidence_items=accumulated_items)
-        final_contract = _parse_final_contract(result)
-        synthesis_out = research_agent_contract_to_domain(final_contract, run_id=req.run_id)
-        research_output = ResearchOutput.model_validate(synthesis_out.model_dump(mode="json"))
+        message_groups = _extract_agent_messages(result.get("messages", []))
+        final_messages = message_groups["final_messages"] or message_groups["intermediate_messages"]
+        if not final_messages:
+            raise ValueError("Research agent produced no output messages.")
+        research_output = parse_research_output_text(final_messages[-1], run_id=req.run_id)
         all_items = [
             *evidence_packet.price_evidence,
             *evidence_packet.news_evidence,
@@ -213,10 +177,9 @@ class LangGraphNodeRuntime:
         ]
         _normalize_research_output_evidence_ids(research_output, all_items=all_items)
         research_output.validate_against({j.judgement_id for j in parse_result.all_judgements()}, {item.item_id for item in all_items})
-        message_groups = _extract_agent_messages(result.get("messages", []))
         source_count = len(evidence_packet.source_registry)
         if research_output.judgement_evidence and source_count == 0:
-            message_groups["final_messages"].append("structured response returned without evidence sources")
+            message_groups["final_messages"].append("research summary returned without evidence sources")
         return {
             "agent_messages": list(state.get("agent_messages", [])) + [
                 *message_groups["input_messages"],
@@ -231,7 +194,7 @@ class LangGraphNodeRuntime:
             "research_output": research_output,
             "accumulated_evidence_items": accumulated_items,
             "accumulated_tool_failures": int(state.get("accumulated_tool_failures", 0)) + sum(1 for t in runtime.tool_traces if not t.success),
-            "research_anomalies": ["structured_response_without_evidence"] if (research_output.judgement_evidence and source_count == 0) else [],
+            "research_anomalies": ["research_summary_without_evidence"] if (research_output.judgement_evidence and source_count == 0) else [],
         }
 
     def verify_information_node(self, state: OrchestratorGraphState) -> OrchestratorGraphState:

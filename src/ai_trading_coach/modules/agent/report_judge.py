@@ -1,26 +1,20 @@
-"""Judge stage with deterministic checks and LLM semantic validation."""
+"""Judge stage with deterministic checks only."""
 
 from __future__ import annotations
 
 import re
 
 from ai_trading_coach.domain.agent_models import JudgeVerdict
-from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.judgement_models import ALLOWED_EVALUATION_WINDOWS, DailyJudgementFeedback
-from ai_trading_coach.domain.llm_output_adapters import judge_verdict_contract_to_domain
-from ai_trading_coach.domain.llm_output_contracts import JudgeVerdictContract
 from ai_trading_coach.domain.models import EvidencePacket
-from ai_trading_coach.llm.gateway import LangChainLLMGateway
-from ai_trading_coach.modules.agent.prompting import PromptManager
 
 
 class ReportJudge:
-    prompt_name = "report_judging"
     _citation_re = re.compile(r"\[source:([A-Za-z0-9_.:-]+)\]")
 
-    def __init__(self, gateway: LangChainLLMGateway, prompt_manager: PromptManager) -> None:
-        self.gateway = gateway
-        self.prompt_manager = prompt_manager
+    def __init__(self, gateway=None, prompt_manager=None) -> None:
+        _ = gateway
+        _ = prompt_manager
 
     def evaluate(self, *, report_markdown: str, judge_context: dict[str, object], evidence_packet: EvidencePacket):
         rule_verdict = self._rule_check(
@@ -29,28 +23,7 @@ class ReportJudge:
             expected_judgement_ids=set(judge_context.get("expected_judgement_ids", [])),
             bundles=judge_context.get("judgement_bundles", []),
         )
-        if not rule_verdict.passed:
-            return rule_verdict, None
-        prompt = self.prompt_manager.load_active(self.prompt_name)
-        messages = self.prompt_manager.build_messages(
-            system_prompt=prompt.system_prompt,
-            payload={"report_markdown": report_markdown, "judge_context": judge_context, "rule_verdict": rule_verdict.model_dump(mode="json")},
-        )
-        llm_contract, trace = self.gateway.invoke_structured(
-            schema=JudgeVerdictContract,
-            messages=messages,
-            purpose=ModelCallPurpose.COGNITION_EVALUATION,
-            prompt_version=f"{prompt.prompt_name}.{prompt.version}",
-            input_summary=f"sources={len(evidence_packet.source_registry)}",
-            output_summary_builder=lambda out: f"passed={out.passed};reasons={len(out.reasons)}",
-        )
-        llm_verdict = judge_verdict_contract_to_domain(llm_contract)
-        return JudgeVerdict(
-            passed=rule_verdict.passed and llm_verdict.passed,
-            reasons=[*rule_verdict.reasons, *llm_verdict.reasons],
-            rewrite_instruction=llm_verdict.rewrite_instruction or rule_verdict.rewrite_instruction,
-            citation_coverage=rule_verdict.citation_coverage,
-        ), trace
+        return rule_verdict, None
 
     def _rule_check(
         self,

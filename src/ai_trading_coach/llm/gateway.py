@@ -1,29 +1,17 @@
-"""Unified LangChain-based LLM gateway for structured and text calls."""
+"""Unified LangChain-based LLM gateway for text calls."""
 
 from __future__ import annotations
 
-import time
-import warnings
 import json
 import re
-from functools import lru_cache
+import time
 from datetime import datetime, timezone
-from typing import Any, Callable, TypeVar
-
-from pydantic import BaseModel
+from typing import Any
 
 from ai_trading_coach.config import Settings
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import ModelCallTrace
-from ai_trading_coach.domain.schema_validation import validate_strict_llm_schema
 from ai_trading_coach.llm.langchain_chat_model import build_langchain_chat_model
-
-SchemaT = TypeVar("SchemaT", bound=BaseModel)
-
-
-@lru_cache(maxsize=64)
-def _validate_schema_cached(schema: type[BaseModel]) -> None:
-    validate_strict_llm_schema(schema)
 
 
 def utc_now() -> datetime:
@@ -68,27 +56,6 @@ class LangChainLLMGateway:
         )
 
     @staticmethod
-    def _is_ignorable_structured_warning(message: str) -> bool:
-        return "Pydantic serializer warnings" in message and "field_name='parsed'" in message
-
-    def _invoke_structured_model_with_warning_filter(self, structured_model: Any, messages: list[dict[str, str]]) -> Any:
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", UserWarning)
-            response = structured_model.invoke(messages)
-        for captured in caught:
-            if self._is_ignorable_structured_warning(str(captured.message)):
-                continue
-            warnings.showwarning(
-                message=captured.message,
-                category=captured.category,
-                filename=captured.filename,
-                lineno=captured.lineno,
-                file=captured.file,
-                line=captured.line,
-            )
-        return response
-
-    @staticmethod
     def _extract_json_payload(raw_text: str) -> Any:
         text = raw_text.strip()
         try:
@@ -106,76 +73,6 @@ class LangChainLLMGateway:
             return json.loads(text[start : end + 1])
 
         raise ValueError("No JSON payload found in model output")
-
-    def invoke_structured(
-        self,
-        *,
-        schema: type[SchemaT],
-        messages: list[dict[str, str]],
-        purpose: ModelCallPurpose,
-        prompt_version: str,
-        input_summary: str,
-        output_summary_builder: Callable[[SchemaT], str] | None = None,
-    ) -> tuple[SchemaT, ModelCallTrace]:
-        _validate_schema_cached(schema)
-        started_at = utc_now()
-        t0 = time.perf_counter()
-        try:
-            structured_model = self.model.with_structured_output(schema)
-            raw = self._invoke_structured_model_with_warning_filter(structured_model, messages)
-            result = raw if isinstance(raw, schema) else schema.model_validate(raw)
-            output_summary = output_summary_builder(result) if output_summary_builder else schema.__name__
-            ended_at = utc_now()
-            latency = int((time.perf_counter() - t0) * 1000)
-            trace = self._build_model_call_trace(
-                purpose=purpose,
-                started_at=started_at,
-                ended_at=ended_at,
-                prompt_version=prompt_version,
-                input_summary=input_summary,
-                output_summary=output_summary,
-                latency_ms=latency,
-            )
-            return result, trace
-        except Exception as structured_exc:  # noqa: BLE001
-            fallback_error = ""
-            try:
-                text_response = self.model.invoke(messages)
-                content = text_response.content if isinstance(text_response.content, str) else str(text_response.content)
-                parsed_json = self._extract_json_payload(content)
-                result = parsed_json if isinstance(parsed_json, schema) else schema.model_validate(parsed_json)
-                output_summary = output_summary_builder(result) if output_summary_builder else schema.__name__
-                ended_at = utc_now()
-                latency = int((time.perf_counter() - t0) * 1000)
-                trace = self._build_model_call_trace(
-                    purpose=purpose,
-                    started_at=started_at,
-                    ended_at=ended_at,
-                    prompt_version=prompt_version,
-                    input_summary=input_summary,
-                    output_summary=f"{output_summary}; fallback=text_json",
-                    latency_ms=latency,
-                )
-                return result, trace
-            except Exception as fallback_exc:  # noqa: BLE001
-                fallback_error = str(fallback_exc)
-
-            ended_at = utc_now()
-            latency = int((time.perf_counter() - t0) * 1000)
-            _ = self._build_model_call_trace(
-                purpose=purpose,
-                started_at=started_at,
-                ended_at=ended_at,
-                prompt_version=prompt_version,
-                input_summary=input_summary,
-                output_summary=f"error:{structured_exc.__class__.__name__}",
-                latency_ms=latency,
-                error_message=f"structured={structured_exc}; fallback={fallback_error}",
-            )
-            raise RuntimeError(
-                f"Structured output failed for schema={schema.__name__}, "
-                f"purpose={purpose.value}, prompt_version={prompt_version}"
-            ) from structured_exc
 
     def invoke_text(
         self,
@@ -215,7 +112,8 @@ class LangChainLLMGateway:
                 error_message=str(exc),
             )
             raise RuntimeError(
-                f"Text output failed for purpose={purpose.value}, prompt_version={prompt_version}"
+                f"Text output failed for purpose={purpose.value}, prompt_version={prompt_version}: "
+                f"{exc.__class__.__name__}: {exc}"
             ) from exc
 
 

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from ai_trading_coach.domain.agent_models import ReporterOutput
-from ai_trading_coach.domain.llm_output_adapters import reporter_contract_to_domain
-from ai_trading_coach.domain.llm_output_contracts import ReporterOutputContract
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.models import EvidencePacket
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent.prompting import PromptManager
+from ai_trading_coach.modules.agent.text_output_parsing import parse_reporter_output_text
 
 
 class ReporterAgent:
@@ -31,12 +30,10 @@ class ReporterAgent:
             },
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
-        contract_out, trace = self.gateway.invoke_structured(
-            schema=ReporterOutputContract,
+        raw_text, trace = self.gateway.invoke_text(
             messages=messages,
             purpose=ModelCallPurpose.REPORT_GENERATION,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgement_bundles', []))}",
-            output_summary_builder=lambda out: f"markdown_chars={len(out.markdown)}; feedback_items={len(out.judgement_feedback)}",
         )
-        return reporter_contract_to_domain(contract_out), trace
+        return parse_reporter_output_text(raw_text), trace

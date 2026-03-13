@@ -1,4 +1,4 @@
-"""LLM-only parser for structured judgement extraction."""
+"""LLM parser for weakly-structured judgement extraction."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ from datetime import date
 
 from ai_trading_coach.domain.enums import ModelCallPurpose
 from ai_trading_coach.domain.judgement_models import ParserOutput
-from ai_trading_coach.domain.llm_output_adapters import parser_contract_to_domain
-from ai_trading_coach.domain.llm_output_contracts import ParserOutputContract
 from ai_trading_coach.llm.gateway import LangChainLLMGateway
 from ai_trading_coach.modules.agent.prompting import PromptManager
+from ai_trading_coach.modules.agent.text_output_parsing import parse_parser_output_text
 
 
 class CombinedParserAgent:
@@ -32,16 +31,14 @@ class CombinedParserAgent:
             ],
         }
         messages = self.prompt_manager.build_messages(system_prompt=prompt.system_prompt, payload=user_payload)
-        contract_out, trace = self.gateway.invoke_structured(
-            schema=ParserOutputContract,
+        raw_text, trace = self.gateway.invoke_text(
             messages=messages,
             purpose=ModelCallPurpose.LOG_UNDERSTANDING,
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"run_id={run_id}; chars={len(raw_log_text)}",
-            output_summary_builder=lambda out: f"judgements={len(out.judgements)}; actions={len(out.trade_actions)}",
         )
-        return parser_contract_to_domain(
-            contract_out,
+        return parse_parser_output_text(
+            raw_text,
             run_id=run_id,
             user_id=user_id,
             run_date=run_date,
