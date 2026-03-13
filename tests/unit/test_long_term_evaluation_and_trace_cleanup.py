@@ -20,23 +20,8 @@ def test_due_evaluation_updates_record_and_prompt_overlay(tmp_path: Path) -> Non
         run_id="r1",
         run_date=date(2026, 1, 1),
         due_date=date(2026, 1, 2),
-        judgement=JudgementItem(
-            judgement_id="j1",
-            category="market_view",
-            target_asset_or_topic="SPX",
-            thesis="SPX up",
-            evidence_from_user_log=["I think SPX up"],
-            proposed_evaluation_window="1 week",
-        ),
-        initial_feedback=DailyJudgementFeedback(
-            judgement_id="j1",
-            initial_feedback="likely_correct",
-            evidence_summary="support",
-            evaluation_window="1 week",
-            window_rationale="trend",
-            followup_indicators=["SPX"],
-            source_ids=["s1"],
-        ),
+        judgement=JudgementItem(category="market_view", target="SPX", thesis="SPX up"),
+        initial_feedback=DailyJudgementFeedback(initial_feedback="likely_correct", evaluation_window="1 week"),
         cycle_evidence=[{"summary": "supporting market performance"}],
     )
     store.upsert_records([record])

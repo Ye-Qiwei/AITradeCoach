@@ -1,4 +1,6 @@
-"""Manual trigger entrypoint for local development."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+Manual trigger entrypoint for local development."""
 
 from __future__ import annotations
 

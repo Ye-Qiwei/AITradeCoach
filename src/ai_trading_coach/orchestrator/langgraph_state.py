@@ -1,4 +1,6 @@
-"""State schema for daily LangGraph."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+State schema for daily LangGraph."""
 
 from __future__ import annotations
 

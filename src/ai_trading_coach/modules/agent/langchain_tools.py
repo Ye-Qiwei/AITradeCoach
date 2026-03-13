@@ -1,4 +1,6 @@
-"""Unified agent tool specs and LangChain exposure."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+Unified agent tool specs and LangChain exposure."""
 
 from __future__ import annotations
 

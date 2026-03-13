@@ -329,7 +329,7 @@ class EvidencePlan(ExtensibleModel):
 
 
 class SourceAttribution(ExtensibleModel):
-    source_id: str = Field(...)
+    source_id: str | None = Field(default=None)
     source_type: str = Field(..., description="news_api/price_api/filing_api/etc.")
     provider: str = Field(..., description="Underlying MCP server or provider name.")
     uri: str | None = Field(default=None)
@@ -340,7 +340,7 @@ class SourceAttribution(ExtensibleModel):
 
 
 class EvidenceItem(ExtensibleModel):
-    item_id: str = Field(...)
+    item_id: str | None = Field(default=None)
     evidence_type: EvidenceType = Field(...)
     summary: str = Field(...)
     data: dict[str, Any] = Field(default_factory=dict)

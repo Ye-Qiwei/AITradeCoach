@@ -22,7 +22,6 @@ def utc_now() -> datetime:
 class CombinedParseResult(ExtensibleModel):
     """Single-pass LLM parse result containing log normalization + cognition state."""
 
-    parse_id: str
     normalized_log: DailyLogNormalized
     cognition_state: CognitionState
 

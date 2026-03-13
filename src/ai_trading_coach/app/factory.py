@@ -1,4 +1,6 @@
-"""Factory functions for the LangGraph-backed agent pipeline."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+Factory functions for the LangGraph-backed agent pipeline."""
 
 from __future__ import annotations
 

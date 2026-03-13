@@ -10,47 +10,15 @@ from ai_trading_coach.domain.models import EvidencePacket
 
 class ContextBuilderV2:
     def for_reporter(self, *, parse_result: ParserOutput, research_output: ResearchOutput, evidence_packet: EvidencePacket) -> dict[str, Any]:
-        all_items = [*evidence_packet.price_evidence, *evidence_packet.news_evidence, *evidence_packet.filing_evidence, *evidence_packet.sentiment_evidence, *evidence_packet.market_regime_evidence, *evidence_packet.discussion_evidence, *evidence_packet.analog_evidence, *evidence_packet.macro_evidence]
-        item_map = {item.item_id: item for item in all_items}
-        research_map = {item.judgement_id: item for item in research_output.judgement_evidence}
-        global_source_index = {src.source_id: {"title": src.title, "provider": src.provider, "published_at": src.published_at.isoformat() if src.published_at else None} for src in evidence_packet.source_registry}
-
-        bundles: list[dict[str, Any]] = []
-        for judgement in parse_result.all_judgements():
-            rs = research_map.get(judgement.judgement_id)
-            item_ids = rs.evidence_item_ids if rs else []
-            bundle_items: list[dict[str, Any]] = []
-            for item_id in item_ids:
-                item = item_map.get(item_id)
-                if not item:
-                    continue
-                bundle_items.append({
-                    "item_id": item.item_id,
-                    "evidence_type": item.evidence_type,
-                    "summary": item.summary,
-                    "related_tickers": item.related_tickers,
-                    "source_ids": [s.source_id for s in item.sources],
-                })
-            allowed_source_ids = sorted({sid for item in bundle_items for sid in item["source_ids"]})
-            bundles.append({
-                "judgement_id": judgement.judgement_id,
-                "category": judgement.category,
-                "target": judgement.target,
-                "thesis": judgement.thesis,
-                "evaluation_window": judgement.evaluation_window,
-                "research_signal": rs.support_signal if rs else "uncertain",
-                "evidence_quality": rs.evidence_quality if rs else "insufficient",
-                "evidence_items": bundle_items,
-                "allowed_source_ids": allowed_source_ids,
-            })
-        return {"judgement_bundles": bundles, "global_source_index": global_source_index}
+        _ = parse_result
+        _ = evidence_packet
+        bundles = [item.model_dump(mode="json") for item in research_output.judgements]
+        return {"judgement_bundles": bundles}
 
     def for_judge(self, *, report_markdown: str, judgement_feedback: list[DailyJudgementFeedback], parse_result: ParserOutput, research_output: ResearchOutput, report_context: dict[str, Any]) -> dict[str, Any]:
+        _ = parse_result
         return {
             "report_markdown": report_markdown,
             "judgement_feedback": [item.model_dump(mode="json") for item in judgement_feedback],
-            "expected_judgement_ids": [j.judgement_id for j in parse_result.all_judgements()],
-            "research_output": research_output.model_dump(mode="json"),
-            "judgement_bundles": report_context.get("judgement_bundles", []),
-            "global_source_index": report_context.get("global_source_index", {}),
+            "judgement_bundles": report_context.get("judgement_bundles", [item.model_dump(mode="json") for item in research_output.judgements]),
         }

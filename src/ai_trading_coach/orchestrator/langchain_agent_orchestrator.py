@@ -1,4 +1,6 @@
-"""Graph-backed orchestrator using LangGraph as runtime."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+Graph-backed orchestrator using LangGraph as runtime."""
 
 from __future__ import annotations
 

@@ -21,7 +21,7 @@ class ReporterAgent:
         prompt = self.prompt_manager.load_active(self.prompt_name)
         user_payload = {
             "report_context": report_context,
-            "source_index": [s.source_id for s in evidence_packet.source_registry],
+            "source_index": [s.provider for s in evidence_packet.source_registry],
             "rewrite_instruction": rewrite_instruction,
             "constraints": {
                 "must_cover_all_judgements": True,
@@ -36,4 +36,4 @@ class ReporterAgent:
             prompt_version=f"{prompt.prompt_name}.{prompt.version}",
             input_summary=f"sources={len(evidence_packet.source_registry)}; judgements={len(report_context.get('judgement_bundles', []))}",
         )
-        return parse_reporter_output_text(raw_text), trace
+        return parse_reporter_output_text(raw_text, len(report_context.get("judgement_bundles", []))), trace

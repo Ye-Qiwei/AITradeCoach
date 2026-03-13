@@ -17,12 +17,11 @@ def utc_now() -> datetime:
 
 
 class TradeAction(ExtensibleModel):
-    action_id: str = ""
     action: Literal["buy", "sell", "add", "reduce", "hold", "watch"]
     target_asset: str
 
+
 class JudgementItem(ExtensibleModel):
-    judgement_id: str
     category: Literal[
         "market_view",
         "asset_view",
@@ -46,7 +45,6 @@ class JudgementItem(ExtensibleModel):
 
 
 class ParserOutput(ExtensibleModel):
-    parse_id: str
     user_id: str
     run_date: date
     trade_actions: list[TradeAction] = Field(default_factory=list)
@@ -56,40 +54,43 @@ class ParserOutput(ExtensibleModel):
         return self.judgements
 
 
+class EvidenceSource(ExtensibleModel):
+    provider: str
+    title: str | None = None
+    uri: str | None = None
+    published_at: str | None = None
 
+
+class CollectedEvidenceItem(ExtensibleModel):
+    evidence_type: str = "other"
+    summary: str
+    related_tickers: list[str] = Field(default_factory=list)
+    sources: list[EvidenceSource] = Field(default_factory=list)
 
 
 class JudgementEvidence(ExtensibleModel):
-    judgement_id: str
-    evidence_item_ids: list[str] = Field(default_factory=list)
     support_signal: Literal["support", "oppose", "uncertain"] = "uncertain"
     evidence_quality: Literal["sufficient", "insufficient", "conflicting", "stale", "indirect"] = "insufficient"
+    evidence_summary: str = ""
+    key_points: list[str] = Field(default_factory=list)
+    collected_evidence_items: list[CollectedEvidenceItem] = Field(default_factory=list)
+
+
+class ResearchedJudgementItem(JudgementItem):
+    evidence: JudgementEvidence = Field(default_factory=JudgementEvidence)
 
 
 class ResearchOutput(ExtensibleModel):
-    research_id: str
-    judgement_evidence: list[JudgementEvidence] = Field(default_factory=list)
+    judgements: list[ResearchedJudgementItem] = Field(default_factory=list)
 
-    def validate_against(self, judgement_ids: set[str], evidence_ids: set[str]) -> None:
-        seen: set[str] = set()
-        for item in self.judgement_evidence:
-            if item.judgement_id not in judgement_ids:
-                raise ValueError(f"Unknown judgement_id in research_output: {item.judgement_id}")
-            if item.judgement_id in seen:
-                raise ValueError(f"Duplicate judgement_id in research_output: {item.judgement_id}")
-            seen.add(item.judgement_id)
-            unknown = [eid for eid in item.evidence_item_ids if eid not in evidence_ids]
-            if unknown:
-                raise ValueError(f"Unknown evidence_item_ids for {item.judgement_id}: {unknown}")
-        missing = sorted(judgement_ids - seen)
-        if missing:
-            raise ValueError(f"Missing judgements in research_output: {missing}")
-
-
+    def validate_against(self, original_judgements: list[JudgementItem]) -> None:
+        if len(self.judgements) != len(original_judgements):
+            raise ValueError(
+                f"Research judgements count mismatch: expected {len(original_judgements)}, got {len(self.judgements)}"
+            )
 
 
 class DailyJudgementFeedback(ExtensibleModel):
-    judgement_id: str
     initial_feedback: Literal["likely_correct", "likely_wrong", "insufficient_evidence", "high_uncertainty"]
     evaluation_window: str
 

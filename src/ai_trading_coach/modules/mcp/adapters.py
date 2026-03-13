@@ -1,4 +1,6 @@
-"""Normalization adapters from raw MCP tool outputs to EvidenceItem."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+Normalization adapters from raw MCP tool outputs to EvidenceItem."""
 
 from __future__ import annotations
 

@@ -1,4 +1,6 @@
-"""LangGraph topology for the single-path ReAct review workflow."""
+"""
+Note: daily agent payloads use id-less list alignment between nodes.
+LangGraph topology for the single-path ReAct review workflow."""
 
 from __future__ import annotations
 

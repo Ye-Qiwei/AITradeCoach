@@ -5,13 +5,7 @@ from types import SimpleNamespace
 
 from ai_trading_coach.domain.agent_models import JudgeVerdict
 from ai_trading_coach.domain.enums import TriggerType
-from ai_trading_coach.domain.judgement_models import (
-    DailyJudgementFeedback,
-    JudgementEvidence,
-    JudgementItem,
-    ParserOutput,
-    ResearchOutput,
-)
+from ai_trading_coach.domain.judgement_models import DailyJudgementFeedback, JudgementItem, ParserOutput, ResearchOutput, ResearchedJudgementItem
 from ai_trading_coach.domain.models import EvidencePacket, ReviewRunRequest
 from ai_trading_coach.orchestrator.langgraph_nodes import LangGraphNodeRuntime
 
@@ -32,7 +26,7 @@ def _runtime(max_rewrites: int, store: DummyStore) -> LangGraphNodeRuntime:
         context_builder=None,
         mcp_manager=None,
         chat_model=None,
-        settings=SimpleNamespace(agent_max_rewrite_rounds=max_rewrites, llm_provider=lambda: "openai", selected_llm_model=lambda: "m"),
+        settings=SimpleNamespace(agent_max_rewrite_rounds=max_rewrites, react_require_min_sources=1, react_max_iterations=1, react_max_tool_failures=1),
         long_term_store=store,
         prompt_manager=None,
     )
@@ -48,44 +42,13 @@ def test_rewrite_round_semantics_allow_expected_extra_rewrites() -> None:
 def test_finalize_result_respects_dry_run_memory_write() -> None:
     store = DummyStore()
     runtime = _runtime(max_rewrites=0, store=store)
-    req = ReviewRunRequest(
-        run_id="r1",
-        user_id="u1",
-        run_date=date(2026, 3, 1),
-        trigger_type=TriggerType.MANUAL,
-        raw_log_text="x",
-        options={"dry_run": True},
-    )
-    parse = ParserOutput(
-        parse_id="p1",
-        user_id="u1",
-        run_date=date(2026, 3, 1),
-        explicit_judgements=[
-            JudgementItem(
-                judgement_id="j1",
-                category="market_view",
-                target_asset_or_topic="SPX",
-                thesis="SPX up",
-                evidence_from_user_log=["spx up"],
-                proposed_evaluation_window="1 week",
-            )
-        ],
-    )
+    req = ReviewRunRequest(run_id="r1", user_id="u1", run_date=date(2026, 3, 1), trigger_type=TriggerType.MANUAL, raw_log_text="x", options={"dry_run": True})
     state = {
         "request": req,
-        "report_draft": "- a [source:s1]",
-        "judgement_feedback": [
-            DailyJudgementFeedback(
-                judgement_id="j1",
-                initial_feedback="high_uncertainty",
-                evidence_summary="n/a",
-                evaluation_window="1 week",
-                window_rationale="n/a",
-                source_ids=["s1"],
-            )
-        ],
-        "parse_result": parse,
-        "research_output": ResearchOutput(research_id="rs", judgement_evidence=[JudgementEvidence(judgement_id="j1", evidence_item_ids=[], support_signal="uncertain", sufficiency_reason="no data")]),
+        "report_draft": "## A\ninitial_feedback: high_uncertainty\nevaluation_window: 1 week",
+        "judgement_feedback": [DailyJudgementFeedback(initial_feedback="high_uncertainty", evaluation_window="1 week")],
+        "parse_result": ParserOutput(user_id="u1", run_date=date(2026, 3, 1), judgements=[JudgementItem(category="market_view", target="SPX", thesis="SPX up")]),
+        "research_output": ResearchOutput(judgements=[ResearchedJudgementItem(category="market_view", target="SPX", thesis="SPX up")]),
         "evidence_packet": EvidencePacket(packet_id="ep", user_id="u1"),
         "model_calls": [],
         "tool_calls": [],
