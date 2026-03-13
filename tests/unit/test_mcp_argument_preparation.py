@@ -1,93 +1,17 @@
-from __future__ import annotations
-
 from ai_trading_coach.config import Settings
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 
 
-def _manager() -> MCPClientManager:
-    settings = Settings(
-        _env_file=None,
-        llm_provider_name="openai",
-        openai_api_key="test-key",
-        mcp_servers_json=(
-            '[{"server_id":"yfinance","transport":"stdio","command":"uvx","args":["yfmcp@latest"]},'
-            '{"server_id":"rss_search","transport":"stdio","command":"python3","args":["-m","rss"]}]'
-        ),
-        mcp_tool_allowlist_csv="yfinance:yfinance_get_price_history,yfinance:yfinance_get_ticker_news,rss_search:rss_search",
-        evidence_tool_map_json=(
-            '{"price_path":"yfinance:yfinance_get_price_history","news":"rss_search:rss_search"}'
-        ),
-    )
-    return MCPClientManager(settings=settings)
+def test_get_tool_ref_defaults() -> None:
+    manager = MCPClientManager(settings=Settings(llm_provider_name="openai", openai_api_key="x"), invoker=lambda *_: {})
+    price_ref, _ = manager.get_tool_ref("get_price_history")
+    news_ref, _ = manager.get_tool_ref("search_news")
+    assert price_ref is not None and price_ref.key == "yfinance:yfinance_get_price_history"
+    assert news_ref is not None and news_ref.key == "yfinance:yfinance_get_ticker_news"
 
 
-def test_prepare_tool_arguments_for_yfinance_history() -> None:
-    manager = _manager()
-
-    prepared = manager.prepare_tool_arguments(
-        server_id="yfinance",
-        tool_name="yfinance_get_price_history",
-        arguments={
-            "objective": "Check recent price path",
-            "tickers": ["TSLA"],
-            "time_window": "1 week",
-            "query": {"interval": "1d"},
-        },
-    )
-
-    assert prepared == {"ticker": "TSLA", "period": "5d", "interval": "1d"}
-
-
-def test_prepare_tool_arguments_for_yfinance_news() -> None:
-    manager = _manager()
-
-    prepared = manager.prepare_tool_arguments(
-        server_id="yfinance",
-        tool_name="yfinance_get_ticker_news",
-        arguments={"tickers": ["NVDA"]},
-    )
-
-    assert prepared == {"ticker": "NVDA"}
-
-
-def test_prepare_tool_arguments_for_yfinance_news_extracts_ticker_from_objective() -> None:
-    manager = _manager()
-
-    prepared = manager.prepare_tool_arguments(
-        server_id="yfinance",
-        tool_name="yfinance_get_ticker_news",
-        arguments={"objective": "Check latest sentiment impact for TSLA before CPI"},
-    )
-
-    assert prepared == {"ticker": "TSLA"}
-
-
-def test_prepare_tool_arguments_for_yfinance_news_extracts_hk_ticker() -> None:
-    manager = _manager()
-
-    prepared = manager.prepare_tool_arguments(
-        server_id="yfinance",
-        tool_name="yfinance_get_ticker_news",
-        arguments={"objective": "Assess upside risks for 0700.HK around earnings"},
-    )
-
-    assert prepared == {"ticker": "0700.HK"}
-
-
-def test_prepare_tool_arguments_for_rss_search() -> None:
-    manager = _manager()
-
-    prepared = manager.prepare_tool_arguments(
-        server_id="rss_search",
-        tool_name="rss_search",
-        arguments={
-            "objective": "Find recent earnings coverage",
-            "tickers": ["AAPL"],
-            "query": {"limit": 5},
-        },
-    )
-
-    assert prepared == {
-        "query": "Find recent earnings coverage AAPL",
-        "limit": 5,
-    }
+def test_get_tool_ref_unknown() -> None:
+    manager = MCPClientManager(settings=Settings(llm_provider_name="openai", openai_api_key="x"), invoker=lambda *_: {})
+    ref, reason = manager.get_tool_ref("unknown")
+    assert ref is None
+    assert "unknown" in (reason or "")

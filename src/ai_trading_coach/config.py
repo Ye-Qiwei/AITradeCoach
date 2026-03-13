@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from ai_trading_coach.domain.enums import EvidenceType, ModuleName
+from ai_trading_coach.domain.enums import ModuleName
 from ai_trading_coach.errors import MCPConfigurationError, MissingAPIKeyError, MissingLLMProviderError
 
 
@@ -45,7 +45,6 @@ class MCPSettings(BaseModel):
     timeout_seconds: int = 20
     max_retries: int = 1
     servers: list[MCPServerDefinition] = Field(default_factory=list)
-    tool_allowlist: set[str] = Field(default_factory=set)
 
 
 class PathSettings(BaseModel):
@@ -53,11 +52,6 @@ class PathSettings(BaseModel):
     report_output_dir: str = "./reports"
     prompt_registry_path: str = "./config/prompts"
 
-
-DEFAULT_EVIDENCE_TOOL_MAP: dict[str, str] = {
-    EvidenceType.PRICE_PATH.value: "yfinance:yfinance_get_price_history",
-    EvidenceType.NEWS.value: "yfinance:yfinance_get_ticker_news",
-}
 
 
 class Settings(BaseSettings):
@@ -122,14 +116,6 @@ class Settings(BaseSettings):
 
     mcp_servers_json: str = Field(
         default="[]", validation_alias=AliasChoices("MCP_SERVERS", "ATC_MCP_SERVERS")
-    )
-    mcp_tool_allowlist_csv: str = Field(
-        default="",
-        validation_alias=AliasChoices("MCP_TOOL_ALLOWLIST", "ATC_MCP_TOOL_ALLOWLIST"),
-    )
-    evidence_tool_map_json: str = Field(
-        default="",
-        validation_alias=AliasChoices("EVIDENCE_TOOL_MAP", "ATC_EVIDENCE_TOOL_MAP"),
     )
     mcp_timeout_seconds: int = Field(
         default=20,
@@ -239,34 +225,13 @@ class Settings(BaseSettings):
         except Exception as exc:  # noqa: BLE001
             raise MCPConfigurationError(f"MCP_SERVERS item validation failed: {exc}") from exc
 
-    def evidence_tool_map(self) -> dict[str, str]:
-        value = self.evidence_tool_map_json.strip()
-        if not value:
-            return dict(DEFAULT_EVIDENCE_TOOL_MAP)
-        try:
-            payload = json.loads(value)
-        except json.JSONDecodeError as exc:
-            raise MCPConfigurationError(f"EVIDENCE_TOOL_MAP must be valid JSON: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise MCPConfigurationError("EVIDENCE_TOOL_MAP must be a JSON object.")
-        merged = dict(DEFAULT_EVIDENCE_TOOL_MAP)
-        for key, mapped in payload.items():
-            merged[str(key)] = str(mapped)
-        return merged
 
-    def mcp_tool_allowlist(self) -> set[str]:
-        value = self.mcp_tool_allowlist_csv.strip()
-        if not value:
-            return set(self.evidence_tool_map().values())
-        items = {chunk.strip() for chunk in value.split(",") if chunk.strip()}
-        return items
 
     def as_mcp_settings(self) -> MCPSettings:
         return MCPSettings(
             timeout_seconds=self.mcp_timeout_seconds,
             max_retries=self.mcp_max_retries,
             servers=self.mcp_server_definitions(),
-            tool_allowlist=self.mcp_tool_allowlist(),
         )
 
     def as_path_settings(self) -> PathSettings:

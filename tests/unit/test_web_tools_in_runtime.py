@@ -13,7 +13,6 @@ def test_web_tools_are_in_runtime_surface_when_available(monkeypatch) -> None:
         openai_api_key="x",
         brave_api_key="b",
         firecrawl_api_key="f",
-        mcp_tool_allowlist_csv="yfinance:yfinance_get_price_history,yfinance:yfinance_get_ticker_news",
     )
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
     tools = build_runtime_research_tools(settings=settings, mcp_manager=manager, runtime=MCPToolRuntime())

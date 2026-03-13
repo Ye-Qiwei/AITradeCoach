@@ -4,45 +4,20 @@ from ai_trading_coach.modules.agent.research_tools import build_runtime_research
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 
 
-def test_runtime_and_diagnostics_share_tool_names() -> None:
-    settings = Settings(
-        llm_provider_name="openai",
-        openai_api_key="x",
-        mcp_tool_allowlist_csv="yfinance:yfinance_get_price_history,yfinance:yfinance_get_ticker_news",
-    )
+def test_unified_tool_builder_exposes_mcp_and_web_tools(monkeypatch) -> None:
+    from ai_trading_coach.modules.agent import web_tools as mod
+
+    monkeypatch.setattr(mod, "_probe_local_playwright_runtime", lambda: (True, None))
+    settings = Settings(llm_provider_name="openai", openai_api_key="x", brave_api_key="b", firecrawl_api_key="f")
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
-    runtime_tools = build_runtime_research_tools(
-        settings=settings,
-        mcp_manager=manager,
-        runtime=MCPToolRuntime(),
-    )
-    runtime_names = {tool.name for tool in runtime_tools}
-
-    diagnostics = resolve_research_tools(settings=settings, mcp_manager=manager)
-    diagnostic_names = {item.agent_name for item in diagnostics if item.available}
-
-    assert runtime_names == diagnostic_names
-    assert "get_price_history" in runtime_names
-    assert "search_news" in runtime_names
-    assert "yahoo_japan_fund_history" in runtime_names
+    tools = build_runtime_research_tools(settings=settings, mcp_manager=manager, runtime=MCPToolRuntime())
+    names = {tool.name for tool in tools}
+    assert {"get_price_history", "search_news", "brave_search", "firecrawl_extract", "playwright_fetch", "yahoo_japan_fund_history"}.issubset(names)
 
 
-def test_default_map_has_no_placeholder_tools() -> None:
+def test_runtime_and_diagnostics_are_consistent() -> None:
     settings = Settings(llm_provider_name="openai", openai_api_key="x")
-    mapped = settings.evidence_tool_map()
-    assert "filing" not in mapped
-    assert "macro" not in mapped
-
-
-def test_evidence_map_controls_runtime_backend() -> None:
-    settings = Settings(
-        llm_provider_name="openai",
-        openai_api_key="x",
-        evidence_tool_map_json='{"news":"rss_search:rss_search"}',
-        mcp_tool_allowlist_csv="yfinance:yfinance_get_price_history,rss_search:rss_search",
-    )
     manager = MCPClientManager(settings=settings, invoker=lambda *_: {})
-    diagnostics = resolve_research_tools(settings=settings, mcp_manager=manager)
-    news = next(item for item in diagnostics if item.agent_name == "search_news")
-    assert news.backend_name == "rss_search:rss_search"
-    assert news.available is True
+    runtime_names = {tool.name for tool in build_runtime_research_tools(settings=settings, mcp_manager=manager, runtime=MCPToolRuntime())}
+    diagnostics = {item.agent_name for item in resolve_research_tools(settings=settings, mcp_manager=manager) if item.available}
+    assert runtime_names == diagnostics

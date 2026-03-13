@@ -16,7 +16,6 @@ class _StructuredModelOK:
             "passed": True,
             "reasons": ["ok"],
             "rewrite_instruction": "",
-            "contradiction_flags": [],
         }
 
 
@@ -49,8 +48,20 @@ class _ModelWarns:
             "passed": True,
             "reasons": ["ok"],
             "rewrite_instruction": "",
-            "contradiction_flags": [],
         }
+
+
+class _ModelStructuredFailsTextSucceeds:
+    def with_structured_output(self, _schema):
+        return _StructuredModelRaises()
+
+    def invoke(self, _messages):
+        class _Resp:
+            content = """```json
+            {"passed": true, "reasons": ["ok"], "rewrite_instruction": ""}
+            ```"""
+
+        return _Resp()
 
 
 def _settings() -> Settings:
@@ -116,3 +127,23 @@ def test_structured_warning_filter_is_narrow(monkeypatch: pytest.MonkeyPatch) ->
 
     assert "keep me" in shown
     assert all("field_name='parsed'" not in item for item in shown)
+
+
+def test_invoke_structured_falls_back_to_text_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "ai_trading_coach.llm.gateway.build_langchain_chat_model",
+        lambda **_: _ModelStructuredFailsTextSucceeds(),
+    )
+    gateway = LangChainLLMGateway(settings=_settings())
+
+    result, trace = gateway.invoke_structured(
+        schema=JudgeVerdictContract,
+        messages=[{"role": "user", "content": "x"}],
+        purpose=ModelCallPurpose.COGNITION_EVALUATION,
+        prompt_version="report_judging.v1",
+        input_summary="sample",
+    )
+
+    assert result.passed is True
+    assert result.reasons == ["ok"]
+    assert "fallback=text_json" in trace.output_summary

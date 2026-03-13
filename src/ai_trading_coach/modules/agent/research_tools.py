@@ -1,4 +1,4 @@
-"""Single source of truth for research tool registration."""
+"""Unified tool registry/builder for the research agent."""
 
 from __future__ import annotations
 
@@ -7,15 +7,18 @@ from dataclasses import dataclass
 from langchain_core.tools import StructuredTool
 
 from ai_trading_coach.config import Settings
-from ai_trading_coach.modules.agent.curated_tools import enabled_curated_tools
-from ai_trading_coach.modules.agent.langchain_tools import MCPToolRuntime, _build_external_tool, _build_local_tool, build_traced_structured_tool
-from ai_trading_coach.modules.agent.web_tools import (
-    make_brave_search,
-    make_firecrawl_extract,
-    make_playwright_fetch,
-    web_tool_availability,
-    web_tool_config,
+from ai_trading_coach.modules.agent.langchain_tools import (
+    BraveSearchInput,
+    FirecrawlExtractInput,
+    MCPToolRuntime,
+    PlaywrightFetchInput,
+    RuntimeToolSpec,
+    build_agent_tools,
+    make_local_fund_history_spec,
+    make_mcp_news_spec,
+    make_mcp_price_history_spec,
 )
+from ai_trading_coach.modules.agent.web_tools import make_brave_search, make_firecrawl_extract, make_playwright_fetch, web_tool_availability, web_tool_config
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 
 
@@ -23,74 +26,55 @@ from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager
 class ResearchToolRegistration:
     agent_name: str
     backend_name: str
-    category: str
+    backend_type: str
     available: bool
     reason: str | None = None
     tool: StructuredTool | None = None
 
 
-def resolve_research_tools(*, settings: Settings, mcp_manager: MCPClientManager, runtime: MCPToolRuntime | None = None) -> list[ResearchToolRegistration]:
-    registrations: list[ResearchToolRegistration] = []
-    tool_runtime = runtime or MCPToolRuntime()
+def _all_specs(*, settings: Settings, mcp_manager: MCPClientManager) -> list[tuple[RuntimeToolSpec, bool, str | None]]:
     web_config = web_tool_config(settings=settings)
     web_statuses = web_tool_availability(settings=settings)
+    specs: list[tuple[RuntimeToolSpec, bool, str | None]] = []
 
-    for spec in enabled_curated_tools():
-        if spec.implementation_kind == "local_python":
-            registrations.append(
-                ResearchToolRegistration(
-                    agent_name=spec.canonical_name,
-                    backend_name=f"local:{spec.implementation_ref or spec.canonical_name}",
-                    category="local_python",
-                    available=True,
-                    tool=_build_local_tool(spec, tool_runtime) if runtime is not None else None,
-                )
-            )
-            continue
+    price_ref, price_reason = mcp_manager.get_tool_ref("get_price_history")
+    if price_ref:
+        specs.append((make_mcp_price_history_spec(price_ref, mcp_manager, description="Get ticker historical prices."), True, None))
 
-        ref, reason = mcp_manager.curated_tool_status(spec.canonical_name)
-        backend_name = ref.key if ref is not None else "mcp:unresolved"
-        registrations.append(
-            ResearchToolRegistration(
-                agent_name=spec.canonical_name,
-                backend_name=backend_name,
-                category="external_mcp",
-                available=ref is not None,
-                reason=reason,
-                tool=_build_external_tool(spec, ref, mcp_manager, tool_runtime) if (runtime is not None and ref is not None) else None,
-            )
-        )
+    news_ref, news_reason = mcp_manager.get_tool_ref("search_news")
+    if news_ref:
+        specs.append((make_mcp_news_spec(news_ref, mcp_manager, description="Get latest ticker news."), True, None))
 
-    for name, handler, description in (
-        ("brave_search", make_brave_search(api_key=web_config.brave_api_key), "Broad web search with Brave Search API."),
-        ("firecrawl_extract", make_firecrawl_extract(api_key=web_config.firecrawl_api_key), "Fetch full content from a target URL with Firecrawl API."),
-        ("playwright_fetch", make_playwright_fetch(endpoint=web_config.agent_browser_endpoint), "Fetch dynamically rendered page content via browser runtime."),
-    ):
-        status = web_statuses[name]
-        registrations.append(
-            ResearchToolRegistration(
-                agent_name=name,
-                backend_name=status.backend,
-                category="web",
-                available=status.available,
-                reason=status.reason,
-                tool=(
-                    build_traced_structured_tool(
-                        name=name,
-                        description=description,
-                        server_id=status.backend,
-                        runtime=tool_runtime,
-                        handler=handler,
-                    )
-                    if (runtime is not None and status.available)
-                    else None
-                ),
-            )
-        )
+    specs.append((make_local_fund_history_spec(description="Fetch Yahoo Japan fund history by fund code or URL."), True, None))
 
-    return registrations
+    brave_status = web_statuses["brave_search"]
+    specs.append((RuntimeToolSpec("brave_search", "Search the web using Brave.", BraveSearchInput, "http", brave_status.backend, lambda x: make_brave_search(api_key=web_config.brave_api_key)(x.query, x.count)), brave_status.available, brave_status.reason))
+
+    firecrawl_status = web_statuses["firecrawl_extract"]
+    specs.append((RuntimeToolSpec("firecrawl_extract", "Extract full webpage content with Firecrawl.", FirecrawlExtractInput, "http", firecrawl_status.backend, lambda x: make_firecrawl_extract(api_key=web_config.firecrawl_api_key)(x.url)), firecrawl_status.available, firecrawl_status.reason))
+
+    playwright_status = web_statuses["playwright_fetch"]
+    specs.append((RuntimeToolSpec("playwright_fetch", "Fetch dynamically rendered webpage content.", PlaywrightFetchInput, "browser", playwright_status.backend, lambda x: make_playwright_fetch(endpoint=web_config.agent_browser_endpoint)(x.url, x.instruction)), playwright_status.available, playwright_status.reason))
+
+    # If MCP ref missing, expose diagnostic rows.
+    if not price_ref:
+        specs.append((RuntimeToolSpec("get_price_history", "Get ticker historical prices.", BraveSearchInput, "mcp", "mcp:missing", lambda _: "tool_error: missing MCP mapping"), False, price_reason or "missing MCP mapping"))
+    if not news_ref:
+        specs.append((RuntimeToolSpec("search_news", "Get latest ticker news.", BraveSearchInput, "mcp", "mcp:missing", lambda _: "tool_error: missing MCP mapping"), False, news_reason or "missing MCP mapping"))
+
+    return specs
+
+
+def resolve_research_tools(*, settings: Settings, mcp_manager: MCPClientManager, runtime: MCPToolRuntime | None = None) -> list[ResearchToolRegistration]:
+    specs = _all_specs(settings=settings, mcp_manager=mcp_manager)
+    tools_by_name: dict[str, StructuredTool] = {}
+    if runtime is not None:
+        tools_by_name = {tool.name: tool for tool in build_agent_tools(specs=[s for s, ok, _ in specs if ok], runtime=runtime)}
+    return [
+        ResearchToolRegistration(agent_name=s.name, backend_name=s.backend_ref, backend_type=s.backend_type, available=ok, reason=reason, tool=tools_by_name.get(s.name))
+        for s, ok, reason in specs
+    ]
 
 
 def build_runtime_research_tools(*, settings: Settings, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> list[StructuredTool]:
-    registrations = resolve_research_tools(settings=settings, mcp_manager=mcp_manager, runtime=runtime)
-    return [item.tool for item in registrations if item.tool is not None]
+    return [item.tool for item in resolve_research_tools(settings=settings, mcp_manager=mcp_manager, runtime=runtime) if item.available and item.tool is not None]

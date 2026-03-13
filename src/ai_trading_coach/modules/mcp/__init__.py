@@ -1,5 +1,5 @@
-"""MCP client/discovery module."""
+"""MCP module exports."""
 
-from .mcp_client_manager import MCPClientManager, MCPToolRef, RawMCPToolMetadata
+from .mcp_client_manager import MCPClientManager, MCPToolRef
 
-__all__ = ["MCPClientManager", "MCPToolRef", "RawMCPToolMetadata"]
+__all__ = ["MCPClientManager", "MCPToolRef"]

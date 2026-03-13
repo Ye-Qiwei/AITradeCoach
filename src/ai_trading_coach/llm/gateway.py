@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 import warnings
+import json
+import re
 from functools import lru_cache
 from datetime import datetime, timezone
 from typing import Any, Callable, TypeVar
@@ -86,6 +88,25 @@ class LangChainLLMGateway:
             )
         return response
 
+    @staticmethod
+    def _extract_json_payload(raw_text: str) -> Any:
+        text = raw_text.strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        fenced = re.search(r"```(?:json)?\s*(\{.*\}|\[.*\])\s*```", text, flags=re.DOTALL)
+        if fenced:
+            return json.loads(fenced.group(1))
+
+        start = min([idx for idx in (text.find("{"), text.find("[")) if idx != -1], default=-1)
+        end = max(text.rfind("}"), text.rfind("]"))
+        if start != -1 and end != -1 and end > start:
+            return json.loads(text[start : end + 1])
+
+        raise ValueError("No JSON payload found in model output")
+
     def invoke_structured(
         self,
         *,
@@ -116,7 +137,29 @@ class LangChainLLMGateway:
                 latency_ms=latency,
             )
             return result, trace
-        except Exception as exc:  # noqa: BLE001
+        except Exception as structured_exc:  # noqa: BLE001
+            fallback_error = ""
+            try:
+                text_response = self.model.invoke(messages)
+                content = text_response.content if isinstance(text_response.content, str) else str(text_response.content)
+                parsed_json = self._extract_json_payload(content)
+                result = parsed_json if isinstance(parsed_json, schema) else schema.model_validate(parsed_json)
+                output_summary = output_summary_builder(result) if output_summary_builder else schema.__name__
+                ended_at = utc_now()
+                latency = int((time.perf_counter() - t0) * 1000)
+                trace = self._build_model_call_trace(
+                    purpose=purpose,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    prompt_version=prompt_version,
+                    input_summary=input_summary,
+                    output_summary=f"{output_summary}; fallback=text_json",
+                    latency_ms=latency,
+                )
+                return result, trace
+            except Exception as fallback_exc:  # noqa: BLE001
+                fallback_error = str(fallback_exc)
+
             ended_at = utc_now()
             latency = int((time.perf_counter() - t0) * 1000)
             _ = self._build_model_call_trace(
@@ -125,14 +168,14 @@ class LangChainLLMGateway:
                 ended_at=ended_at,
                 prompt_version=prompt_version,
                 input_summary=input_summary,
-                output_summary=f"error:{exc.__class__.__name__}",
+                output_summary=f"error:{structured_exc.__class__.__name__}",
                 latency_ms=latency,
-                error_message=str(exc),
+                error_message=f"structured={structured_exc}; fallback={fallback_error}",
             )
             raise RuntimeError(
                 f"Structured output failed for schema={schema.__name__}, "
                 f"purpose={purpose.value}, prompt_version={prompt_version}"
-            ) from exc
+            ) from structured_exc
 
     def invoke_text(
         self,

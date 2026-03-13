@@ -1,4 +1,4 @@
-"""Build one-layer curated tools for the research agent."""
+"""Unified agent tool specs and LangChain exposure."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from ai_trading_coach.domain.agent_models import PlanSubTask
+from ai_trading_coach.domain.enums import EvidenceType
 from ai_trading_coach.domain.models import EvidenceItem, ToolCallTrace
 from ai_trading_coach.domain.react_models import ReActStep
-from ai_trading_coach.modules.agent.curated_tools import CuratedToolDefinition
 from ai_trading_coach.modules.data_sources.yahoo_japan_fund_history import get_fund_history_by_code, get_fund_history_by_url
 from ai_trading_coach.modules.mcp.adapters import normalize_tool_output
 from ai_trading_coach.modules.mcp.mcp_client_manager import MCPClientManager, MCPToolRef, tool_payload_hash
@@ -24,15 +24,40 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class CuratedToolInput(BaseModel):
-    objective: str = ""
-    judgement_ids: list[str] = Field(default_factory=list)
-    tickers: list[str] = Field(default_factory=list)
-    query: dict[str, Any] = Field(default_factory=dict)
-    time_window: str | None = None
+class BraveSearchInput(BaseModel):
+    query: str = Field(..., min_length=1)
+    count: int = Field(default=5, ge=1, le=10)
+
+
+class FirecrawlExtractInput(BaseModel):
+    url: str = Field(..., min_length=3)
+
+
+class PlaywrightFetchInput(BaseModel):
+    url: str = Field(..., min_length=3)
+    instruction: str = "extract main content"
+
+
+class PriceHistoryInput(BaseModel):
+    ticker: str = Field(..., min_length=1)
+    period: str = "1mo"
+    interval: str = "1d"
+
+
+class TickerNewsInput(BaseModel):
+    ticker: str = Field(..., min_length=1)
+
+
+class YahooJapanFundHistoryInput(BaseModel):
     fund_code: str | None = None
     url: str | None = None
-    max_pages: int = 3
+    max_pages: int = Field(default=3, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "YahooJapanFundHistoryInput":
+        if not (self.fund_code or self.url):
+            raise ValueError("Either fund_code or url is required")
+        return self
 
 
 @dataclass
@@ -42,183 +67,102 @@ class MCPToolRuntime:
     react_steps: list[ReActStep] = field(default_factory=list)
 
 
-def build_agent_tools(*, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> list[StructuredTool]:
-    """Backward-compatible wrapper around unified research tool builder."""
-    from ai_trading_coach.modules.agent.research_tools import build_runtime_research_tools
+@dataclass(frozen=True)
+class RuntimeToolSpec:
+    name: str
+    description: str
+    args_schema: type[BaseModel]
+    backend_type: str
+    backend_ref: str
+    invoke: Callable[[BaseModel], Any]
 
-    return build_runtime_research_tools(
-        settings=mcp_manager.settings,
-        mcp_manager=mcp_manager,
-        runtime=runtime,
-    )
 
-
-def build_traced_structured_tool(*, name: str, description: str, server_id: str, runtime: MCPToolRuntime, handler: Callable[..., str]) -> StructuredTool:
+def make_langchain_tool(spec: RuntimeToolSpec, runtime: MCPToolRuntime) -> StructuredTool:
     def _invoke(**kwargs: Any) -> str:
+        try:
+            validated = spec.args_schema.model_validate(kwargs)
+        except ValidationError as exc:
+            return f"tool_error: invalid_input for {spec.name}: {exc.errors()}"
         return asyncio.run(
             _record_tool_attempt(
                 runtime=runtime,
-                action_name=name,
-                server_id=server_id,
-                tool_name=name,
-                arguments=kwargs,
-                run_call=lambda: _run_sync_handler(handler=handler, kwargs=kwargs),
+                action_name=spec.name,
+                server_id=spec.backend_ref,
+                tool_name=spec.name,
+                arguments=validated.model_dump(mode="json"),
+                run_call=lambda: _run_validated(spec, validated),
             )
         )
 
-    return StructuredTool.from_function(func=_invoke, name=name, description=description)
+    return StructuredTool.from_function(func=_invoke, name=spec.name, description=spec.description, args_schema=spec.args_schema)
 
 
-async def _run_sync_handler(*, handler: Callable[..., str], kwargs: dict[str, Any]) -> tuple[list[EvidenceItem], str | None]:
-    result = handler(**kwargs)
-    if isinstance(result, str) and result.strip().startswith("tool_error:"):
-        return [], result.strip().split("tool_error:", 1)[1].strip() or "unknown tool error"
+async def _run_validated(spec: RuntimeToolSpec, validated: BaseModel) -> tuple[list[EvidenceItem], str | None]:
+    result = spec.invoke(validated)
+    if asyncio.iscoroutine(result):
+        result = await result
+    if isinstance(result, tuple) and len(result) == 2:
+        return result
+    if isinstance(result, str) and result.startswith("tool_error:"):
+        return [], result.split("tool_error:", 1)[1].strip()
     return [], None
 
 
-def _build_external_tool(spec: CuratedToolDefinition, tool_ref: MCPToolRef, mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> StructuredTool:
-    def _invoke(**kwargs: Any) -> str:
-        return asyncio.run(_invoke_external(spec=spec, tool_ref=tool_ref, kwargs=kwargs, mcp_manager=mcp_manager, runtime=runtime))
-
-    return StructuredTool.from_function(func=_invoke, name=spec.canonical_name, description=f"{spec.description} Use when: {spec.when_to_use}.")
+def build_agent_tools(*, specs: list[RuntimeToolSpec], runtime: MCPToolRuntime) -> list[StructuredTool]:
+    return [make_langchain_tool(spec, runtime) for spec in specs]
 
 
-def _build_local_tool(spec: CuratedToolDefinition, runtime: MCPToolRuntime) -> StructuredTool:
-    def _invoke(**kwargs: Any) -> str:
-        return asyncio.run(_invoke_local(spec=spec, kwargs=kwargs, runtime=runtime))
+def make_mcp_price_history_spec(tool_ref: MCPToolRef, mcp_manager: MCPClientManager, *, description: str) -> RuntimeToolSpec:
+    async def _invoke(payload: PriceHistoryInput) -> tuple[list[EvidenceItem], str | None]:
+        arguments = payload.model_dump(mode="json")
+        raw = await mcp_manager.call_tool(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, arguments=arguments)
+        subtask = PlanSubTask(subtask_id=f"price_{payload.ticker}", objective=f"Get price history for {payload.ticker}", tool_category="market_data", evidence_type=EvidenceType.PRICE_PATH, query={"period": payload.period, "interval": payload.interval}, tickers=[payload.ticker])
+        return normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw), None
 
-    return StructuredTool.from_function(func=_invoke, name=spec.canonical_name, description=f"{spec.description} Use when: {spec.when_to_use}.")
-
-
-async def _invoke_external(*, spec: CuratedToolDefinition, tool_ref: MCPToolRef, kwargs: dict[str, Any], mcp_manager: MCPClientManager, runtime: MCPToolRuntime) -> str:
-    validated: CuratedToolInput | None = None
-
-    async def _run() -> tuple[list[EvidenceItem], str | None]:
-        nonlocal validated
-        validated = CuratedToolInput.model_validate(kwargs)
-        subtask = PlanSubTask(
-            subtask_id=f"react_{spec.canonical_name}_{len(runtime.tool_traces)+1}",
-            objective=validated.objective or spec.description,
-            tool_category=spec.tool_category,
-            evidence_type=spec.evidence_type,
-            query=validated.query,
-            tickers=validated.tickers,
-            time_window=validated.time_window,
-        )
-        args = {
-            "objective": validated.objective,
-            "query": validated.query,
-            "tickers": validated.tickers,
-            "time_window": validated.time_window,
-            "judgement_ids": validated.judgement_ids,
-        }
-        raw = await mcp_manager.call_tool(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, arguments=args)
-        items = normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw)
-        for item in items:
-            item.extensions["judgement_ids"] = validated.judgement_ids
-        runtime.evidence_items.extend(items)
-        return items, None
-
-    return await _record_tool_attempt(
-        runtime=runtime,
-        action_name=spec.canonical_name,
-        server_id=tool_ref.server_id,
-        tool_name=tool_ref.tool_name,
-        arguments=kwargs,
-        run_call=_run,
-    )
+    return RuntimeToolSpec("get_price_history", description, PriceHistoryInput, "mcp", tool_ref.key, _invoke)
 
 
-async def _invoke_local(*, spec: CuratedToolDefinition, kwargs: dict[str, Any], runtime: MCPToolRuntime) -> str:
-    validated: CuratedToolInput | None = None
+def make_mcp_news_spec(tool_ref: MCPToolRef, mcp_manager: MCPClientManager, *, description: str) -> RuntimeToolSpec:
+    async def _invoke(payload: TickerNewsInput) -> tuple[list[EvidenceItem], str | None]:
+        raw = await mcp_manager.call_tool(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, arguments=payload.model_dump(mode="json"))
+        subtask = PlanSubTask(subtask_id=f"news_{payload.ticker}", objective=f"Get latest news for {payload.ticker}", tool_category="news_search", evidence_type=EvidenceType.NEWS, tickers=[payload.ticker])
+        return normalize_tool_output(server_id=tool_ref.server_id, tool_name=tool_ref.tool_name, subtask=subtask, raw_result=raw), None
 
-    async def _run() -> tuple[list[EvidenceItem], str | None]:
-        nonlocal validated
-        validated = CuratedToolInput.model_validate(kwargs)
-        if validated.fund_code:
-            payload = await get_fund_history_by_code(validated.fund_code, max_pages=validated.max_pages)
-        elif validated.url:
-            payload = await get_fund_history_by_url(validated.url, max_pages=validated.max_pages)
+    return RuntimeToolSpec("search_news", description, TickerNewsInput, "mcp", tool_ref.key, _invoke)
+
+
+def make_local_fund_history_spec(*, description: str) -> RuntimeToolSpec:
+    async def _invoke(payload: YahooJapanFundHistoryInput) -> tuple[list[EvidenceItem], str | None]:
+        if payload.fund_code:
+            result = await get_fund_history_by_code(payload.fund_code, max_pages=payload.max_pages)
         else:
-            raise ValueError("Provide either fund_code or url")
-        items = _fund_history_to_evidence(payload, validated)
-        runtime.evidence_items.extend(items)
-        return items, None
+            result = await get_fund_history_by_url(payload.url or "", max_pages=payload.max_pages)
+        rows = result.get("rows", []) if isinstance(result, dict) else []
+        source_id = f"src_yahoo_japan_fund_{payload.fund_code or 'url'}"
+        return [EvidenceItem(item_id=f"ev_fund_{payload.fund_code or 'url'}", evidence_type="price_path", summary=f"fund={result.get('fund_name','')}; rows={len(rows)}", data={"payload": result}, related_tickers=[payload.fund_code] if payload.fund_code else [], sources=[{"source_id": source_id, "source_type": "web", "provider": "yahoo_japan", "uri": payload.url or "", "title": result.get("fund_name", ""), "published_at": None, "fetched_at": utc_now(), "reliability_score": 0.7}])], None
 
-    return await _record_tool_attempt(
-        runtime=runtime,
-        action_name=spec.canonical_name,
-        server_id="local_python",
-        tool_name=spec.canonical_name,
-        arguments=kwargs,
-        run_call=_run,
-    )
+    return RuntimeToolSpec("yahoo_japan_fund_history", description, YahooJapanFundHistoryInput, "python", "local:yahoo_japan", _invoke)
 
 
-async def _record_tool_attempt(
-    *,
-    runtime: MCPToolRuntime,
-    action_name: str,
-    server_id: str,
-    tool_name: str,
-    arguments: dict[str, Any],
-    run_call: Callable[[], Awaitable[tuple[list[EvidenceItem], str | None]]],
-) -> str:
-    step = _start_step(action_name, arguments, runtime)
+async def _record_tool_attempt(*, runtime: MCPToolRuntime, action_name: str, server_id: str, tool_name: str, arguments: dict[str, Any], run_call: Callable[[], Any]) -> str:
+    step = ReActStep(step_index=len(runtime.react_steps) + 1, thought=f"Call {action_name}", action=action_name, action_input=arguments, started_at=utc_now())
     started = utc_now()
     t0 = perf_counter()
     items: list[EvidenceItem] = []
     err: str | None = None
     try:
-        items, explicit_err = await run_call()
-        err = explicit_err
+        items, err = await run_call()
+        runtime.evidence_items.extend(items)
     except Exception as exc:  # noqa: BLE001
         err = str(exc)
-    _finish_trace(runtime, step, started, t0, server_id, tool_name, arguments, items, err)
-    return _build_observation(action_name, items, err)
-
-
-def _fund_history_to_evidence(payload: dict[str, Any], validated: CuratedToolInput) -> list[EvidenceItem]:
-    rows = payload.get("rows", []) if isinstance(payload, dict) else []
-    source_id = f"src_yahoo_japan_fund_{validated.fund_code or 'url'}"
-    return [
-        EvidenceItem(
-            item_id=f"ev_fund_{validated.fund_code or 'url'}",
-            evidence_type="price_path",
-            summary=f"fund_code={payload.get('fund_code')}; rows={len(rows)}; latest={rows[0].get('date') if rows else 'na'}",
-            data={"fund_name": payload.get("fund_name"), "rows": rows[:20], "row_count": payload.get("row_count", len(rows)), "debug": payload.get("debug", [])},
-            related_tickers=[validated.fund_code] if validated.fund_code else [],
-            sources=[{"source_id": source_id, "source_type": "mcp", "provider": "yahoo_japan", "uri": validated.url or f"https://finance.yahoo.co.jp/quote/{validated.fund_code}/history", "title": payload.get("fund_name"), "published_at": None, "fetched_at": utc_now(), "reliability_score": 0.7}],
-        )
-    ]
-
-
-def _start_step(action_name: str, action_input: dict[str, Any], runtime: MCPToolRuntime) -> ReActStep:
-    step = ReActStep(step_index=len(runtime.react_steps)+1, thought=f"Call curated tool {action_name}", action=action_name, action_input=action_input, started_at=utc_now())
-    return step
-
-
-def _finish_trace(runtime: MCPToolRuntime, step: ReActStep, started: datetime, t0: float, server_id: str, tool_name: str, arguments: dict[str, Any], items: list[EvidenceItem], err: str | None) -> None:
-    success = err is None
-    step.success = success
+    step.success = err is None
     step.error_message = err
-    step.evidence_item_ids = [item.item_id for item in items]
+    step.evidence_item_ids = [i.item_id for i in items]
     step.observation_summary = err or f"Fetched {len(items)} items"
     step.ended_at = utc_now()
     runtime.react_steps.append(step)
-    runtime.tool_traces.append(ToolCallTrace(call_id=f"tool_{tool_name}_{int(started.timestamp()*1000)}", tool_name=tool_name, server_id=server_id, request_summary=f"curated={step.action}", response_summary=f"items={len(items)}", payload_hash=tool_payload_hash(arguments), latency_ms=int((perf_counter()-t0)*1000), success=success, error_message=err))
+    runtime.tool_traces.append(ToolCallTrace(call_id=f"tool_{tool_name}_{int(started.timestamp()*1000)}", tool_name=tool_name, server_id=server_id, request_summary=action_name, response_summary=f"items={len(items)}", payload_hash=tool_payload_hash(arguments), latency_ms=int((perf_counter()-t0)*1000), success=(err is None), error_message=err))
+    return f"tool_error: {err}" if err else f"tool={action_name}; items={len(items)}"
 
 
-def _build_observation(name: str, items: list[EvidenceItem], err: str | None) -> str:
-    if err:
-        return f"tool_error: {err}"
-    return f"tool={name}; items={len(items)}; evidence_item_ids={[i.item_id for i in items][:5]}"
-
-
-__all__ = [
-    "MCPToolRuntime",
-    "build_agent_tools",
-    "build_traced_structured_tool",
-    "_build_external_tool",
-    "_build_local_tool",
-]
+__all__ = ["MCPToolRuntime", "RuntimeToolSpec", "BraveSearchInput", "FirecrawlExtractInput", "PlaywrightFetchInput", "PriceHistoryInput", "TickerNewsInput", "YahooJapanFundHistoryInput", "build_agent_tools", "make_mcp_price_history_spec", "make_mcp_news_spec", "make_local_fund_history_spec"]
